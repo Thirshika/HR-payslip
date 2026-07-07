@@ -5,8 +5,8 @@ from typing import List
 from sqlalchemy.orm import Session
 import os
 
-from . import models
-from . import database
+import models
+import database
 
 app = FastAPI(title="HR Payslip API")
 
