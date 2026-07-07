@@ -2539,6 +2539,7 @@ function pgHistory(m){
   m.innerHTML=`
   <div class="page-hd"><div><h1>Payroll History</h1><p>${mons.length} month(s) · ${recs.length} records</p></div>
     <div class="pha">
+      <button class="btn btn-pu btn-sm" onclick="sendBulkPayslips('${sel}')">📧 Send All Payslips</button>
       <button class="btn btn-grn btn-sm" onclick="exportExcel('${sel}')">⬇ Excel</button>
       <button class="btn btn-o btn-sm" onclick="exportCSV('${sel}')">⬇ CSV</button>
       ${locked?`<button class="btn btn-o btn-sm" onclick="unlockMon('${sel}')">🔓 Unlock</button>`:`<button class="btn btn-g btn-sm" onclick="editDraft('${sel}')">✏️ Edit</button>`}
@@ -2563,6 +2564,52 @@ function pgHistory(m){
     </div>
   </div>
   ${_histView==='table' ? renderHistTable(fl, sel) : renderHistCards(fl, sel)}`;
+  
+  // Load email statuses for table view
+  if(_histView === 'table'){
+    loadEmailStatuses(fl, sel);
+  }
+}
+
+async function loadEmailStatuses(records, month){
+  try{
+    const response = await fetch(`http://localhost:3001/api/email-history-month/${month}`);
+    const result = await response.json();
+    
+    if(result.success){
+      const historyMap = {};
+      result.history.forEach(h => {
+        historyMap[h.empId] = h;
+      });
+      
+      records.forEach(r => {
+        const statusEl = document.getElementById(`email-status-${r.empId}-${month.replace(/\s+/g,'_')}`);
+        if(statusEl){
+          const history = historyMap[r.empId];
+          if(history){
+            if(history.status === 'Sent'){
+              statusEl.innerHTML = `<span style="color:#16a34a;">✓ Sent</span><br><span style="color:var(--muted);font-size:9px;">${new Date(history.sentAt).toLocaleDateString()}</span>`;
+            } else if(history.status === 'Failed'){
+              statusEl.innerHTML = `<span style="color:#dc2626;">✗ Failed</span><br><button class="btn btn-xs btn-or" onclick="event.stopPropagation();resendEmail('${r.empId}','${month}')">Retry</button>`;
+            } else {
+              statusEl.innerHTML = `<span style="color:#f59e0b;">⏳ Pending</span>`;
+            }
+          } else {
+            statusEl.innerHTML = `<span style="color:var(--muted);">—</span>`;
+          }
+        }
+      });
+    }
+  }catch(error){
+    console.error('Error loading email statuses:', error);
+    // Set all to — on error
+    records.forEach(r => {
+      const statusEl = document.getElementById(`email-status-${r.empId}-${month.replace(/\s+/g,'_')}`);
+      if(statusEl){
+        statusEl.innerHTML = `<span style="color:var(--muted);">—</span>`;
+      }
+    });
+  }
 }
 
 function renderHistTable(fl, sel){
@@ -2593,6 +2640,7 @@ function renderHistTable(fl, sel){
           <th style="text-align:right;color:#fdba74;">Other Ded</th>
           <th style="text-align:right;color:#86efac;">Net Pay</th>
           <th style="text-align:center;">Payslip</th>
+          <th style="text-align:center;">Email Status</th>
         </tr>
       </thead>
       <tbody>
@@ -2631,12 +2679,15 @@ function renderHistTable(fl, sel){
             <td style="text-align:center;">
               <button class="btn btn-o btn-xs" onclick="event.stopPropagation();openSlip('${r.empId}','${sel}')">👁 View</button>
             </td>
+            <td style="text-align:center;">
+              <span id="email-status-${r.empId}-${sel.replace(/\s+/g,'_')}" style="font-size:10px;">Loading...</span>
+            </td>
           </tr>`;
         }).join('')}
       </tbody>
       <tfoot>
         <tr>
-          <td colspan="10" style="text-align:right;">TOTAL (${fl.length} employees)</td>
+          <td colspan="11" style="text-align:right;">TOTAL (${fl.length} employees)</td>
           <td style="text-align:right;">${fmt(totTP)}</td>
           <td style="text-align:right;">${totLOP>0?'−'+fmt(totLOP):'—'}</td>
           <td style="text-align:right;">${totAdv>0?'−'+fmt(totAdv):'—'}</td>
@@ -3050,6 +3101,10 @@ function doCP(id){ byId(id).pass=document.getElementById('np').value; save(); mC
 function openSlip(empId, month){
   const e=byId(empId), r=getRec(month,empId);
   if(!e||!r) return;
+  
+  // Store for email functionality
+  currentModalEmpId = empId;
+  currentModalMonth = month;
   const net=netPay(r), lop=lopAmt(r);
   const tp=recTotalPayable(r);
   const totalDed=lop+(r.advanceDeducted||0)+(r.otherDeduction||0)+(r.halfDayDeduction||0);
@@ -3172,7 +3227,7 @@ function openSlip(empId, month){
       <span>Generated: ${PAY[month]?.generatedOn||today()}</span>
     </div>
   </div>`,
-  [{l:'Close',c:'btn-o',f:'mClose()'},{l:'⬇ PDF',c:'btn-g',f:'exportModalPayslipPDF()'},{l:'🖨 Print',c:'btn-p',f:'printPayslip()'}], true);
+  [{l:'Close',c:'btn-o',f:'mClose()'},{l:'⬇ PDF',c:'btn-g',f:'exportModalPayslipPDF()'},{l:'📧 Email',c:'btn-pu',f:'openEmailDialog()',id:'emailBtn'},{l:'🖨 Print',c:'btn-p',f:'printPayslip()'}], true);
 }
 
 // ═══════════════════════════════════════════
@@ -4932,6 +4987,172 @@ function clearAllData(){
   ORGS=[...DEFAULT_ORGS]; saveAll(); saveDocs();
   toast('All data reset to defaults','err');
   gotoPage('dashboard');
+}
+
+// ── EMAIL FUNCTIONALITY ──
+let currentEmailEmpId = null;
+let currentEmailMonth = null;
+
+function openEmailDialog(){
+  const empId = currentModalEmpId;
+  const month = currentModalMonth;
+  if(!empId || !month){ toast('Unable to get employee/month info','err'); return; }
+  
+  const e = byId(empId);
+  if(!e){ toast('Employee not found','err'); return; }
+  
+  if(!e.email){
+    mShow('No Email Address', 
+      `<div style="padding:1.5rem;text-align:center;">
+        <div style="font-size:48px;margin-bottom:1rem;">📧</div>
+        <h3 style="margin-bottom:0.5rem;">No Email Address</h3>
+        <p style="color:var(--muted);margin-bottom:1rem;">This employee does not have an email address on file.</p>
+        <p style="font-size:13px;color:var(--muted);">Please update the employee profile first to add their email address.</p>
+      </div>`,
+      [{l:'Close',c:'btn-o',f:'mClose()'}], true);
+    return;
+  }
+  
+  currentEmailEmpId = empId;
+  currentEmailMonth = month;
+  
+  mShow('Send Payslip by Email',
+    `<div style="padding:1.25rem;">
+      <div class="f">
+        <label>Employee Name</label>
+        <input type="text" readonly value="${e.name}" style="background:#f5f5f5;"/>
+      </div>
+      <div class="f">
+        <label>Email Address</label>
+        <input type="email" id="emailTo" value="${e.email}" style="font-family:'DM Sans',sans-serif;"/>
+      </div>
+      <div class="f">
+        <label>Subject</label>
+        <input type="text" id="emailSubject" value="Payslip for ${month} - ${e.name}" style="font-family:'DM Sans',sans-serif;"/>
+      </div>
+      <div class="f">
+        <label>Message</label>
+        <textarea id="emailMessage" rows="4" style="font-family:'DM Sans',sans-serif;resize:vertical;">Dear ${e.name},
+
+Please find attached your payslip for ${month}.
+
+If you have any questions, please contact the HR department.
+
+Best regards,
+HR Department</textarea>
+      </div>
+    </div>`,
+    [{l:'Cancel',c:'btn-o',f:'mClose()'},{l:'Send Email',c:'btn-p',f:'sendPayslipEmail()'}], true);
+}
+
+async function sendPayslipEmail(){
+  const emailTo = document.getElementById('emailTo')?.value;
+  const emailSubject = document.getElementById('emailSubject')?.value;
+  const emailMessage = document.getElementById('emailMessage')?.value;
+  
+  if(!emailTo || !emailTo.includes('@')){
+    toast('Please enter a valid email address','err');
+    return;
+  }
+  
+  // Show loading
+  const emailBtn = document.querySelector('#mFoot button:last-child');
+  if(emailBtn){
+    emailBtn.disabled = true;
+    emailBtn.innerHTML = '<span class="spinner">⏳</span> Sending...';
+  }
+  
+  try{
+    const response = await fetch('http://localhost:3001/api/send-payslip-email', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        empId: currentEmailEmpId,
+        month: currentEmailMonth,
+        customEmail: emailTo,
+        customSubject: emailSubject,
+        customMessage: emailMessage
+      })
+    });
+    
+    const result = await response.json();
+    
+    if(result.success){
+      toast(`Payslip sent successfully to ${result.email || emailTo}`);
+      mClose();
+      // Refresh current page to update email status
+      if(curPage === 'history') pgHistory(document.getElementById('hrMain'));
+    }else{
+      toast(`Failed to send email: ${result.error || 'Unknown error'}`,'err');
+    }
+  }catch(error){
+    console.error('Email error:', error);
+    toast('Failed to send email. Please check if the email service is running.','err');
+  }finally{
+    // Reset button
+    if(emailBtn){
+      emailBtn.disabled = false;
+      emailBtn.innerHTML = 'Send Email';
+    }
+  }
+}
+
+async function sendBulkPayslips(month){
+  if(!month){ toast('Please select a month first','err'); return; }
+  if(!confirm(`Send payslips to ALL employees for ${month}?`)) return;
+  
+  const btn = event.target;
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner">⏳</span> Starting...';
+  
+  try{
+    const response = await fetch('http://localhost:3001/api/send-bulk-payslips', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ month })
+    });
+    
+    const result = await response.json();
+    
+    if(result.success){
+      toast(`Bulk email sending started for ${month}. Check console for progress.`);
+      btn.innerHTML = '✓ Started';
+      setTimeout(() => {
+        btn.disabled = false;
+        btn.innerHTML = '📧 Send All Payslips';
+        pgHistory(document.getElementById('hrMain'));
+      }, 3000);
+    }else{
+      toast(`Failed to start bulk send: ${result.error}`,'err');
+      btn.disabled = false;
+      btn.innerHTML = '📧 Send All Payslips';
+    }
+  }catch(error){
+    console.error('Bulk email error:', error);
+    toast('Failed to start bulk email sending. Please check if the email service is running.','err');
+    btn.disabled = false;
+    btn.innerHTML = '📧 Send All Payslips';
+  }
+}
+
+function resendEmail(empId, month){
+  currentEmailEmpId = empId;
+  currentEmailMonth = month;
+  openEmailDialog();
+}
+
+async function getEmailStatus(empId, month){
+  try{
+    const response = await fetch(`http://localhost:3001/api/email-history/${empId}`);
+    const result = await response.json();
+    if(result.success){
+      const record = result.history.find(h => h.month === month);
+      return record || null;
+    }
+  }catch(error){
+    console.error('Error fetching email status:', error);
+  }
+  return null;
 }
 
 // ── INIT ──

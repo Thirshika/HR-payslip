@@ -3,4 +3,5 @@ fastapi
 uvicorn[standard]
 sqlalchemy
 pydantic
-pymysql
+psycopg2-binary
+gunicorn

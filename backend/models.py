@@ -1,4 +1,4 @@
-from sqlalchemy import Column, String, Float, Integer
+from sqlalchemy import Column, String, Float, Integer, DateTime, Text
 from .database import Base
 
 class Employee(Base):
@@ -22,3 +22,15 @@ class PayrollRecord(Base):
     netPayable = Column(Float, default=0)
     paidAmount = Column(Float, default=0)
     balanceAmount = Column(Float, default=0)
+
+class EmailHistory(Base):
+    __tablename__ = 'email_history'
+
+    id = Column(Integer, primary_key=True, index=True)
+    empId = Column(String(64), nullable=False, index=True)
+    empName = Column(String(255), nullable=False)
+    email = Column(String(255), nullable=False)
+    month = Column(String(50), nullable=False, index=True)
+    sentAt = Column(DateTime, nullable=True)
+    status = Column(String(50), nullable=False, default='Pending')
+    errorMessage = Column(Text, nullable=True)

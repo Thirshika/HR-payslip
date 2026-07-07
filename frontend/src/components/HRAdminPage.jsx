@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import TopNav from './TopNav.jsx';
 import Toast from './Toast.jsx';
+import PayslipView from './PayslipView.jsx';
 
 const hrPages = [
   { id: 'dashboard', label: 'Dashboard' },
@@ -8,6 +9,7 @@ const hrPages = [
   { id: 'attendance', label: 'Attendance Entry' },
   { id: 'generate', label: 'Generate Payroll' },
   { id: 'history', label: 'Payroll History' },
+  { id: 'payslip', label: 'Test Payslip Email' },
   { id: 'hrportal', label: 'HR Portal' },
   { id: 'leaves', label: 'Leave Management' },
   { id: 'expenses', label: 'Expenses' },
@@ -42,8 +44,14 @@ function HRAdminPage() {
           </div>
         </aside>
         <main className="hr-main">
-          <h2>{hrPages.find((page) => page.id === currentPage)?.label}</h2>
-          <p>This is the {currentPage} section from the original HR admin UI.</p>
+          {currentPage === 'payslip' ? (
+            <PayslipView />
+          ) : (
+            <>
+              <h2>{hrPages.find((page) => page.id === currentPage)?.label}</h2>
+              <p>This is the {currentPage} section from the original HR admin UI.</p>
+            </>
+          )}
         </main>
       </div>
       <Toast visible={toast.visible} message={toast.message} type={toast.type} />

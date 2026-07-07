@@ -1,11 +1,24 @@
 from fastapi import FastAPI, HTTPException, Depends
+from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import List
 from sqlalchemy.orm import Session
+import os
 
-from backend import models, database
+from . import models
+from . import database
 
 app = FastAPI(title="HR Payslip API")
+
+# Add CORS middleware for frontend access
+allowed_origins = os.getenv("ALLOWED_ORIGINS", "http://localhost:5173,http://localhost:3000").split(",")
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=allowed_origins,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 database.Base.metadata.create_all(bind=database.engine)
 

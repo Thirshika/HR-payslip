@@ -1,8 +1,348 @@
+import { useState } from 'react';
+import Modal from './Modal.jsx';
+
 function PayslipView() {
+  const [isModalOpen, setIsModalOpen] = useState(false);
+  const [isLoading, setIsLoading] = useState(false);
+  const [message, setMessage] = useState('');
+  const [messageType, setMessageType] = useState('');
+  const [employeeEmail] = useState('thirshikannan07@gmail.com');
+
+  const handleEmailPayslip = async () => {
+    console.log('Email button clicked');
+    setIsLoading(true);
+    setMessage('');
+    setMessageType('');
+
+    try {
+      console.log('Sending email to:', employeeEmail);
+      const response = await fetch('http://localhost:3001/api/test-email-payslip', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ email: employeeEmail }),
+      });
+
+      console.log('Response status:', response.status);
+      const data = await response.json();
+      console.log('Response data:', data);
+
+      if (data.success) {
+        setMessage(data.message);
+        setMessageType('success');
+        console.log('Email sent successfully');
+      } else {
+        setMessage(data.error || 'Failed to send payslip');
+        setMessageType('error');
+        console.log('Email send failed:', data.error);
+      }
+    } catch (error) {
+      setMessage('Error sending payslip: ' + error.message);
+      setMessageType('error');
+      console.error('Error sending payslip:', error);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handlePrint = () => {
+    window.print();
+  };
+
+  const handleDownloadPDF = () => {
+    // PDF download functionality would be implemented here
+    alert('PDF download functionality to be implemented');
+  };
+
   return (
     <section className="page-section">
       <h2>Payslip</h2>
-      <p>Render the payslip preview here and add export or print actions.</p>
+      <button 
+        onClick={() => setIsModalOpen(true)}
+        style={{
+          padding: '10px 20px',
+          backgroundColor: '#0d1b2a',
+          color: 'white',
+          border: 'none',
+          borderRadius: '8px',
+          cursor: 'pointer',
+          fontSize: '14px'
+        }}
+      >
+        View Test Payslip
+      </button>
+
+      <Modal
+        title="Payslip - Thirshika K"
+        open={isModalOpen}
+        onClose={() => {
+          setIsModalOpen(false);
+          setMessage('');
+          setMessageType('');
+        }}
+        footer={
+          <div style={{ display: 'flex', gap: '10px', alignItems: 'center', justifyContent: 'space-between' }}>
+            {message && (
+              <span style={{
+                color: messageType === 'success' ? 'green' : 'red',
+                fontSize: '14px'
+              }}>
+                {message}
+              </span>
+            )}
+            <div style={{ display: 'flex', gap: '10px', marginLeft: 'auto' }}>
+              <button
+                onClick={() => {
+                  setIsModalOpen(false);
+                  setMessage('');
+                  setMessageType('');
+                }}
+                style={{
+                  padding: '10px 20px',
+                  backgroundColor: '#6c757d',
+                  color: 'white',
+                  border: 'none',
+                  borderRadius: '8px',
+                  cursor: 'pointer',
+                  fontSize: '14px'
+                }}
+              >
+                Close
+              </button>
+              <button
+                onClick={handleDownloadPDF}
+                style={{
+                  padding: '10px 20px',
+                  backgroundColor: '#17a2b8',
+                  color: 'white',
+                  border: 'none',
+                  borderRadius: '8px',
+                  cursor: 'pointer',
+                  fontSize: '14px'
+                }}
+              >
+                PDF
+              </button>
+              <button
+                onClick={handleEmailPayslip}
+                disabled={isLoading}
+                style={{
+                  padding: '10px 20px',
+                  backgroundColor: isLoading ? '#ccc' : '#28a745',
+                  color: 'white',
+                  border: 'none',
+                  borderRadius: '8px',
+                  cursor: isLoading ? 'not-allowed' : 'pointer',
+                  fontSize: '14px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '8px'
+                }}
+              >
+                {isLoading ? (
+                  <>
+                    <span className="spinner" />
+                    Sending...
+                  </>
+                ) : (
+                  'Email'
+                )}
+              </button>
+              <button
+                onClick={handlePrint}
+                style={{
+                  padding: '10px 20px',
+                  backgroundColor: '#0d1b2a',
+                  color: 'white',
+                  border: 'none',
+                  borderRadius: '8px',
+                  cursor: 'pointer',
+                  fontSize: '14px'
+                }}
+              >
+                Print
+              </button>
+            </div>
+          </div>
+        }
+      >
+        <div style={{ padding: '20px', fontSize: '13px' }}>
+          {/* Header */}
+          <div style={{ marginBottom: '20px', paddingBottom: '15px', borderBottom: '2px solid #0d1b2a' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <div>
+                <h3 style={{ margin: '0 0 5px 0', color: '#0d1b2a', fontSize: '18px' }}>Test Organization</h3>
+                <p style={{ margin: '0', color: '#666', fontSize: '12px' }}>123 Business Street, City, Country</p>
+              </div>
+              <div style={{ textAlign: 'right' }}>
+                <p style={{ margin: '0', color: '#e8a832', fontWeight: 'bold', fontSize: '16px' }}>PAYSLIP</p>
+                <p style={{ margin: '5px 0 0 0', color: '#666', fontSize: '12px' }}>January 2024</p>
+              </div>
+            </div>
+          </div>
+
+          {/* Employee Information */}
+          <div style={{ marginBottom: '20px' }}>
+            <h4 style={{ margin: '0 0 10px 0', color: '#0d1b2a', fontSize: '14px', borderBottom: '1px solid #e0e0e0', paddingBottom: '5px' }}>Employee Information</h4>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '15px' }}>
+              <div>
+                <div style={{ fontSize: '11px', color: '#666', textTransform: 'uppercase', marginBottom: '2px' }}>Employee ID</div>
+                <div style={{ fontSize: '13px', color: '#0d1b2a', fontWeight: '500' }}>TEST001</div>
+              </div>
+              <div>
+                <div style={{ fontSize: '11px', color: '#666', textTransform: 'uppercase', marginBottom: '2px' }}>Employee Name</div>
+                <div style={{ fontSize: '13px', color: '#0d1b2a', fontWeight: '500' }}>Thirshika K</div>
+              </div>
+              <div>
+                <div style={{ fontSize: '11px', color: '#666', textTransform: 'uppercase', marginBottom: '2px' }}>Designation</div>
+                <div style={{ fontSize: '13px', color: '#0d1b2a', fontWeight: '500' }}>Test Designation</div>
+              </div>
+              <div>
+                <div style={{ fontSize: '11px', color: '#666', textTransform: 'uppercase', marginBottom: '2px' }}>Branch</div>
+                <div style={{ fontSize: '13px', color: '#0d1b2a', fontWeight: '500' }}>Test Branch</div>
+              </div>
+              <div>
+                <div style={{ fontSize: '11px', color: '#666', textTransform: 'uppercase', marginBottom: '2px' }}>Email</div>
+                <div style={{ fontSize: '13px', color: '#0d1b2a', fontWeight: '500' }}>{employeeEmail}</div>
+              </div>
+              <div>
+                <div style={{ fontSize: '11px', color: '#666', textTransform: 'uppercase', marginBottom: '2px' }}>Phone</div>
+                <div style={{ fontSize: '13px', color: '#0d1b2a', fontWeight: '500' }}>1234567890</div>
+              </div>
+            </div>
+          </div>
+
+          {/* Attendance Summary */}
+          <div style={{ marginBottom: '20px' }}>
+            <h4 style={{ margin: '0 0 10px 0', color: '#0d1b2a', fontSize: '14px', borderBottom: '1px solid #e0e0e0', paddingBottom: '5px' }}>Attendance Summary</h4>
+            <div style={{ backgroundColor: '#f8f9fa', padding: '15px', borderRadius: '6px' }}>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '10px' }}>
+                <div style={{ textAlign: 'center', padding: '10px', backgroundColor: 'white', borderRadius: '4px' }}>
+                  <div style={{ fontSize: '20px', fontWeight: 'bold', color: '#28a745' }}>22</div>
+                  <div style={{ fontSize: '11px', color: '#666' }}>Days Present</div>
+                </div>
+                <div style={{ textAlign: 'center', padding: '10px', backgroundColor: 'white', borderRadius: '4px' }}>
+                  <div style={{ fontSize: '20px', fontWeight: 'bold', color: '#dc3545' }}>1</div>
+                  <div style={{ fontSize: '11px', color: '#666' }}>Days Absent</div>
+                </div>
+                <div style={{ textAlign: 'center', padding: '10px', backgroundColor: 'white', borderRadius: '4px' }}>
+                  <div style={{ fontSize: '20px', fontWeight: 'bold', color: '#ffc107' }}>2</div>
+                  <div style={{ fontSize: '11px', color: '#666' }}>Leave Days</div>
+                </div>
+                <div style={{ textAlign: 'center', padding: '10px', backgroundColor: 'white', borderRadius: '4px' }}>
+                  <div style={{ fontSize: '20px', fontWeight: 'bold', color: '#17a2b8' }}>25</div>
+                  <div style={{ fontSize: '11px', color: '#666' }}>Total Days</div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Earnings */}
+          <div style={{ marginBottom: '20px' }}>
+            <h4 style={{ margin: '0 0 10px 0', color: '#0d1b2a', fontSize: '14px', borderBottom: '1px solid #e0e0e0', paddingBottom: '5px' }}>Earnings</h4>
+            <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+              <thead>
+                <tr style={{ backgroundColor: '#0d1b2a', color: 'white' }}>
+                  <th style={{ padding: '10px', textAlign: 'left', fontSize: '12px' }}>Description</th>
+                  <th style={{ padding: '10px', textAlign: 'right', fontSize: '12px' }}>Amount</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr style={{ backgroundColor: '#f8f9fa' }}>
+                  <td style={{ padding: '10px', borderBottom: '1px solid #e0e0e0' }}>Basic Salary</td>
+                  <td style={{ padding: '10px', textAlign: 'right', borderBottom: '1px solid #e0e0e0' }}>₹25,000.00</td>
+                </tr>
+                <tr>
+                  <td style={{ padding: '10px', borderBottom: '1px solid #e0e0e0' }}>House Rent Allowance</td>
+                  <td style={{ padding: '10px', textAlign: 'right', borderBottom: '1px solid #e0e0e0' }}>₹10,000.00</td>
+                </tr>
+                <tr style={{ backgroundColor: '#f8f9fa' }}>
+                  <td style={{ padding: '10px', borderBottom: '1px solid #e0e0e0' }}>Dearness Allowance</td>
+                  <td style={{ padding: '10px', textAlign: 'right', borderBottom: '1px solid #e0e0e0' }}>₹8,000.00</td>
+                </tr>
+                <tr>
+                  <td style={{ padding: '10px', borderBottom: '1px solid #e0e0e0' }}>Medical Allowance</td>
+                  <td style={{ padding: '10px', textAlign: 'right', borderBottom: '1px solid #e0e0e0' }}>₹2,000.00</td>
+                </tr>
+                <tr style={{ backgroundColor: '#f8f9fa' }}>
+                  <td style={{ padding: '10px', borderBottom: '1px solid #e0e0e0' }}>Transport Allowance</td>
+                  <td style={{ padding: '10px', textAlign: 'right', borderBottom: '1px solid #e0e0e0' }}>₹3,000.00</td>
+                </tr>
+                <tr style={{ backgroundColor: '#e8f5e9', fontWeight: 'bold' }}>
+                  <td style={{ padding: '10px', borderBottom: '1px solid #e0e0e0' }}>Total Earnings</td>
+                  <td style={{ padding: '10px', textAlign: 'right', borderBottom: '1px solid #e0e0e0', color: '#28a745' }}>₹50,000.00</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          {/* Deductions */}
+          <div style={{ marginBottom: '20px' }}>
+            <h4 style={{ margin: '0 0 10px 0', color: '#0d1b2a', fontSize: '14px', borderBottom: '1px solid #e0e0e0', paddingBottom: '5px' }}>Deductions</h4>
+            <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+              <thead>
+                <tr style={{ backgroundColor: '#dc3545', color: 'white' }}>
+                  <th style={{ padding: '10px', textAlign: 'left', fontSize: '12px' }}>Description</th>
+                  <th style={{ padding: '10px', textAlign: 'right', fontSize: '12px' }}>Amount</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr style={{ backgroundColor: '#f8f9fa' }}>
+                  <td style={{ padding: '10px', borderBottom: '1px solid #e0e0e0' }}>Provident Fund</td>
+                  <td style={{ padding: '10px', textAlign: 'right', borderBottom: '1px solid #e0e0e0' }}>₹2,500.00</td>
+                </tr>
+                <tr>
+                  <td style={{ padding: '10px', borderBottom: '1px solid #e0e0e0' }}>Professional Tax</td>
+                  <td style={{ padding: '10px', textAlign: 'right', borderBottom: '1px solid #e0e0e0' }}>₹200.00</td>
+                </tr>
+                <tr style={{ backgroundColor: '#f8f9fa' }}>
+                  <td style={{ padding: '10px', borderBottom: '1px solid #e0e0e0' }}>Income Tax (TDS)</td>
+                  <td style={{ padding: '10px', textAlign: 'right', borderBottom: '1px solid #e0e0e0' }}>₹1,500.00</td>
+                </tr>
+                <tr>
+                  <td style={{ padding: '10px', borderBottom: '1px solid #e0e0e0' }}>Health Insurance</td>
+                  <td style={{ padding: '10px', textAlign: 'right', borderBottom: '1px solid #e0e0e0' }}>₹800.00</td>
+                </tr>
+                <tr style={{ backgroundColor: '#ffebee', fontWeight: 'bold' }}>
+                  <td style={{ padding: '10px', borderBottom: '1px solid #e0e0e0' }}>Total Deductions</td>
+                  <td style={{ padding: '10px', textAlign: 'right', borderBottom: '1px solid #e0e0e0', color: '#dc3545' }}>₹5,000.00</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          {/* Summary */}
+          <div style={{ backgroundColor: '#0d1b2a', color: 'white', padding: '20px', borderRadius: '8px', marginBottom: '20px' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '10px' }}>
+              <span>Gross Salary</span>
+              <span>₹50,000.00</span>
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '10px' }}>
+              <span>Total Deductions</span>
+              <span>₹5,000.00</span>
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', borderTop: '1px solid rgba(255,255,255,0.3)', paddingTop: '10px', fontSize: '16px', fontWeight: 'bold' }}>
+              <span>Net Payable</span>
+              <span>₹45,000.00</span>
+            </div>
+          </div>
+
+          {/* Footer */}
+          <div style={{ textAlign: 'center', marginTop: '30px', paddingTop: '20px', borderTop: '1px solid #e0e0e0', color: '#666', fontSize: '11px' }}>
+            <p style={{ margin: '0 0 5px 0' }}>This is a computer-generated payslip. For any queries, please contact HR department.</p>
+            <p style={{ margin: '0 0 5px 0' }}>Generated on: {new Date().toLocaleDateString()}</p>
+            <p style={{ margin: '0' }}>© 2024 Test Organization. All rights reserved.</p>
+          </div>
+        </div>
+
+        <style>{`
+          @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+          }
+        `}</style>
+      </Modal>
     </section>
   );
 }
