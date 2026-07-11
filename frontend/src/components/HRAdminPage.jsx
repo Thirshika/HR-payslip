@@ -28,7 +28,7 @@ function HRAdminPage() {
 
   return (
     <div className="hr-shell">
-      <TopNav title="HR Payslip System" tag="hr" userName="HR" onSignOut={() => {}} />
+      <TopNav title="HR Payslip System" tag="hr" userName="HR" onSignOut={() => { }} />
       <div className="hr-layout">
         <aside className="hr-sidebar">
           <div className="snav">
@@ -59,4 +59,5 @@ function HRAdminPage() {
   );
 }
 
+export default HRAdminPage;
 export default HRAdminPage;

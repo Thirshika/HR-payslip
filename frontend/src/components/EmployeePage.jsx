@@ -12,7 +12,7 @@ function EmployeePage() {
 
   return (
     <div className="emp-shell">
-      <TopNav title="My Payslips" tag="employee" userName="Employee" onSignOut={() => {}} />
+      <TopNav title="My Payslips" tag="employee" userName="Employee" onSignOut={() => { }} />
       <div className="emp-main">
         <div className="emp-tabs">
           {employeeTabs.map((tab) => (
