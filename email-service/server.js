@@ -256,57 +256,65 @@ const generatePayslipHTML = (employee, payroll) => {
     </div>
   </div>
 </body>
-</html>
   `;
 };
 
 // API: Send individual payslip email
 app.post('/api/send-payslip-email', async (req, res) => {
-  const { empId, month, customEmail, customSubject, customMessage } = req.body;
+  const { empId, month, customEmail, customSubject, customMessage, employee: reqEmployee, payroll: reqPayroll, htmlContent: reqHtmlContent } = req.body;
   
   try {
-    // Fetch employee and payroll data
-    const employees = await pool.query(
-      'SELECT * FROM employees WHERE id = $1',
-      [empId]
-    );
-    
-    if (employees.rows.length === 0) {
-      return res.status(404).json({ success: false, error: 'Employee not found' });
+    let employee = reqEmployee;
+    let payroll = reqPayroll;
+    let htmlContent = reqHtmlContent;
+
+    // If data not provided in request body, try fetching from database
+    if ((!employee || !payroll) && !htmlContent) {
+      const employees = await pool.query(
+        'SELECT * FROM employees WHERE id = $1',
+        [empId]
+      );
+      
+      if (employees.rows.length === 0) {
+        return res.status(404).json({ success: false, error: 'Employee not found in database' });
+      }
+      
+      employee = employees.rows[0];
+      
+      const payrollRecords = await pool.query(
+        'SELECT * FROM payroll_records WHERE empId = $1 AND month = $2',
+        [empId, month]
+      );
+      
+      if (payrollRecords.rows.length === 0) {
+        return res.status(404).json({ success: false, error: 'Payroll record not found in database' });
+      }
+      
+      payroll = payrollRecords.rows[0];
     }
     
-    const employee = employees.rows[0];
-    
-    const payrollRecords = await pool.query(
-      'SELECT * FROM payroll_records WHERE empId = $1 AND month = $2',
-      [empId, month]
-    );
-    
-    if (payrollRecords.rows.length === 0) {
-      return res.status(404).json({ success: false, error: 'Payroll record not found' });
-    }
-    
-    const payroll = payrollRecords.rows[0];
-    
-    // Use custom email if provided, otherwise use employee's email
-    const toEmail = customEmail || employee.email;
+    // Use custom email if provided, otherwise check employee object
+    const toEmail = customEmail || (employee && employee.email);
     
     if (!toEmail) {
       return res.status(400).json({ success: false, error: 'No email address provided' });
     }
     
-    // Generate payslip HTML
-    const htmlContent = generatePayslipHTML(employee, payroll);
+    // Generate payslip HTML if not provided directly
+    if (!htmlContent) {
+      htmlContent = generatePayslipHTML(employee, payroll);
+    }
     
     // Generate PDF
-    const pdfPath = await generatePDF(htmlContent, empId, month);
+    const pdfPath = await generatePDF(htmlContent, empId || (employee && employee.id) || 'EMP', month || 'month');
     
     // Create email transporter
     const transporter = await createTransporter();
     
     // Send email
-    const subject = customSubject || `Payslip for ${month} - ${employee.name}`;
-    const message = customMessage || `Dear ${employee.name},\n\nPlease find attached your payslip for ${month}.\n\nIf you have any questions, please contact the HR department.\n\nBest regards,\nHR Department`;
+    const employeeName = (employee && employee.name) || req.body.empName || 'Employee';
+    const subject = customSubject || `Payslip for ${month || ''} - ${employeeName}`;
+    const message = customMessage || `Dear ${employeeName},\n\nPlease find attached your payslip for ${month || ''}.\n\nIf you have any questions, please contact the HR department.\n\nBest regards,\nHR Department`;
     
     const mailOptions = {
       from: process.env.EMAIL_USER,
@@ -315,7 +323,7 @@ app.post('/api/send-payslip-email', async (req, res) => {
       text: message,
       attachments: [
         {
-          filename: `Payslip_${month.replace(/\s+/g, '_')}.pdf`,
+          filename: `Payslip_${(month || '').replace(/\s+/g, '_')}.pdf`,
           path: pdfPath
         }
       ]
@@ -323,11 +331,15 @@ app.post('/api/send-payslip-email', async (req, res) => {
     
     await transporter.sendMail(mailOptions);
     
-    // Record email history
-    await pool.query(
-      'INSERT INTO email_history (empId, empName, email, month, sentAt, status, errorMessage) VALUES ($1, $2, $3, $4, NOW(), $5, $6)',
-      [empId, employee.name, toEmail, month, 'Sent', null]
-    );
+    // Record email history (wrapped in try/catch to not block success if DB is unconfigured)
+    try {
+      await pool.query(
+        'INSERT INTO email_history (empId, empName, email, month, sentAt, status, errorMessage) VALUES ($1, $2, $3, $4, NOW(), $5, $6)',
+        [empId || (employee && employee.id) || 'EMP', employeeName, toEmail, month || '', 'Sent', null]
+      );
+    } catch (dbError) {
+      console.warn('Could not record to database email_history (DB may be offline):', dbError.message);
+    }
     
     res.json({ 
       success: true, 
@@ -340,15 +352,14 @@ app.post('/api/send-payslip-email', async (req, res) => {
     
     // Record failed attempt
     try {
-      const employees = await pool.query('SELECT * FROM employees WHERE id = $1', [empId]);
-      if (employees.rows.length > 0) {
-        await pool.query(
-          'INSERT INTO email_history (empId, empName, email, month, sentAt, status, errorMessage) VALUES ($1, $2, $3, $4, NOW(), $5, $6)',
-          [empId, employees.rows[0].name, customEmail || employees.rows[0].email, month, 'Failed', error.message]
-        );
-      }
+      const employeeName = (reqEmployee && reqEmployee.name) || req.body.empName || 'Employee';
+      const toEmail = customEmail || (reqEmployee && reqEmployee.email);
+      await pool.query(
+        'INSERT INTO email_history (empId, empName, email, month, sentAt, status, errorMessage) VALUES ($1, $2, $3, $4, NOW(), $5, $6)',
+        [empId || (reqEmployee && reqEmployee.id) || 'EMP', employeeName, toEmail || '', month || '', 'Failed', error.message]
+      );
     } catch (dbError) {
-      console.error('Error recording email history:', dbError);
+      // Ignore DB error
     }
     
     res.status(500).json({ 
