@@ -8,10 +8,10 @@ import { v4 as uuidv4 } from 'uuid';
 import path from 'path';
 import { fileURLToPath } from 'url';
 
-dotenv.config();
-
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
+
+dotenv.config({ path: path.join(__dirname, '.env') });
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -20,58 +20,78 @@ app.use(cors());
 app.use(express.json());
 
 // Database connection (PostgreSQL)
-const pool = new pg.Pool({
+const poolConfig = {
   host: process.env.DB_HOST || 'localhost',
-  port: process.env.DB_PORT || 5432,
+  port: Number(process.env.DB_PORT || 5432),
   user: process.env.DB_USER || 'postgres',
   password: process.env.DB_PASSWORD || 'password',
   database: process.env.DB_NAME || 'hr_pay_db',
   max: 10,
-  idleTimeoutMillis: 30000,
-  connectionTimeoutMillis: 2000,
-});
+  idleTimeoutMillis: 60000,
+  connectionTimeoutMillis: 15000,
+  statement_timeout: 30000,
+  query_timeout: 30000,
+  keepAlive: true,
+};
 
-// Email transporter configuration
+if (String(process.env.DB_SSL).toLowerCase() === 'true') {
+  poolConfig.ssl = { rejectUnauthorized: false };
+}
+
+const pool = new pg.Pool(poolConfig);
+
 let transporter = null;
+
+const defaultFromName = process.env.EMAIL_FROM_NAME || 'HR Department';
+const defaultFromEmail = process.env.EMAIL_FROM || process.env.EMAIL_USER;
+const defaultReplyTo = process.env.EMAIL_REPLY_TO || defaultFromEmail;
 
 const createTransporter = async () => {
   if (!transporter) {
-    transporter = nodemailer.createTransport({
-      service: 'gmail',
+    const smtpConfig = {
+      host: process.env.EMAIL_HOST || 'smtp.gmail.com',
+      port: Number(process.env.EMAIL_PORT || 587),
+      secure: String(process.env.EMAIL_SECURE).toLowerCase() === 'true',
       auth: {
         user: process.env.EMAIL_USER,
         pass: process.env.EMAIL_PASS,
       },
-    });
-    
-    console.log('Gmail transport configured');
-    console.log('User:', process.env.EMAIL_USER);
-    
-    // Verify connection
+      tls: {
+        ciphers: 'TLSv1.2',
+      },
+    };
+
+    transporter = nodemailer.createTransport(smtpConfig);
+    console.log('SMTP transport configured:', smtpConfig.host);
+    console.log('From:', defaultFromEmail);
+
     try {
       await transporter.verify();
-      console.log('✅ Gmail SMTP connection verified successfully');
+      console.log('✅ SMTP connection verified successfully');
     } catch (error) {
-      console.error('❌ Gmail SMTP verification failed:', error.message);
+      console.error('❌ SMTP verification failed:', error.message);
     }
   }
-  
+
   return transporter;
 };
 
 // Generate PDF from HTML
 const generatePDF = async (htmlContent, empId, month) => {
-  const browser = await puppeteer.launch({ 
-    headless: true,
+  const browser = await puppeteer.launch({
+    executablePath: puppeteer.executablePath(),
+    headless: 'new',
     args: [
+      '--disable-gpu',
       '--no-sandbox',
       '--disable-setuid-sandbox',
       '--disable-dev-shm-usage',
       '--disable-accelerated-2d-canvas',
       '--no-first-run',
-      '--no-zygote',
-      '--disable-gpu'
-    ]
+      '--no-zygote'
+    ],
+    timeout: 30000,
+    ignoreHTTPSErrors: true,
   });
   const page = await browser.newPage();
   
@@ -317,34 +337,69 @@ app.post('/api/send-payslip-email', async (req, res) => {
     const message = customMessage || `Dear ${employeeName},\n\nPlease find attached your payslip for ${month || ''}.\n\nIf you have any questions, please contact the HR department.\n\nBest regards,\nHR Department`;
     
     const mailOptions = {
-      from: process.env.EMAIL_USER,
+      from: `"${defaultFromName}" <${defaultFromEmail}>`,
+      sender: defaultFromEmail,
+      replyTo: defaultReplyTo,
       to: toEmail,
+      envelope: {
+        from: defaultFromEmail,
+        to: toEmail,
+      },
       subject: subject,
       text: message,
+      html: `
+        <div style="font-family: Arial, sans-serif; color: #1f2937; line-height: 1.6;">
+          <p>Dear ${employeeName},</p>
+          <p>Please find attached your payslip for <strong>${month || ''}</strong>.</p>
+          <p>If you have any questions, please reply to this email or contact the HR department directly.</p>
+          <p>Thank you for your continued contributions.</p>
+          <p>Regards,<br/><strong>HR Department</strong></p>
+        </div>
+      `,
+      date: new Date(),
+      messageId: `<payslip-${uuidv4()}@${defaultFromEmail.split('@')[1]}>`,
+      importance: 'high',
+      headers: {
+        'X-Priority': '3',
+        'X-Mailer': 'HR Department Mailer',
+        'List-Unsubscribe': `<mailto:${defaultReplyTo}>`,
+      },
       attachments: [
         {
           filename: `Payslip_${(month || '').replace(/\s+/g, '_')}.pdf`,
-          path: pdfPath
+          path: pdfPath,
+          contentType: 'application/pdf'
         }
       ]
     };
     
-    await transporter.sendMail(mailOptions);
-    
+    const info = await transporter.sendMail(mailOptions);
+    const sendStatus = info.rejected && info.rejected.length > 0 ? 'failed' : 'accepted';
+    const statusMessage = sendStatus === 'accepted'
+      ? `Email accepted by Gmail SMTP for delivery to ${toEmail}. messageId=${info.messageId}`
+      : `Email rejected by SMTP for ${toEmail}: ${info.rejected.join(', ')}`;
+    console.log(statusMessage);
+    console.log('SMTP accepted recipients:', info.accepted);
+    console.log('SMTP rejected recipients:', info.rejected);
+
     // Record email history (wrapped in try/catch to not block success if DB is unconfigured)
     try {
       await pool.query(
-        'INSERT INTO email_history (empId, empName, email, month, sentAt, status, errorMessage) VALUES ($1, $2, $3, $4, NOW(), $5, $6)',
-        [empId || (employee && employee.id) || 'EMP', employeeName, toEmail, month || '', 'Sent', null]
+        'INSERT INTO email_history ("empId", "empName", email, month, "sentAt", status, "errorMessage") VALUES ($1, $2, $3, $4, NOW(), $5, $6)',
+        [empId || (employee && employee.id) || 'EMP', employeeName, toEmail, month || '', sendStatus === 'accepted' ? 'Accepted' : 'Failed', sendStatus === 'accepted' ? null : `SMTP rejected: ${info.rejected.join(', ')}`]
       );
     } catch (dbError) {
       console.warn('Could not record to database email_history (DB may be offline):', dbError.message);
     }
     
     res.json({ 
-      success: true, 
-      message: `Payslip sent successfully to ${toEmail}`,
-      email: toEmail
+      success: sendStatus === 'accepted', 
+      message: statusMessage,
+      email: toEmail,
+      smtpAccepted: info.accepted,
+      smtpRejected: info.rejected,
+      envelope: info.envelope,
+      messageId: info.messageId
     });
     
   } catch (error) {
@@ -355,16 +410,19 @@ app.post('/api/send-payslip-email', async (req, res) => {
       const employeeName = (reqEmployee && reqEmployee.name) || req.body.empName || 'Employee';
       const toEmail = customEmail || (reqEmployee && reqEmployee.email);
       await pool.query(
-        'INSERT INTO email_history (empId, empName, email, month, sentAt, status, errorMessage) VALUES ($1, $2, $3, $4, NOW(), $5, $6)',
+        'INSERT INTO email_history ("empId", "empName", email, month, "sentAt", status, "errorMessage") VALUES ($1, $2, $3, $4, NOW(), $5, $6)',
         [empId || (reqEmployee && reqEmployee.id) || 'EMP', employeeName, toEmail || '', month || '', 'Failed', error.message]
       );
     } catch (dbError) {
       // Ignore DB error
     }
     
+    const failureRecipient = customEmail || (reqEmployee && reqEmployee.email) || 'unknown recipient';
+    console.error(`Email send failed to ${failureRecipient}:`, error.message);
     res.status(500).json({ 
       success: false, 
-      error: error.message 
+      error: error.message,
+      recipient: failureRecipient
     });
   }
 });
@@ -436,7 +494,7 @@ app.get('/api/email-history/:empId', async (req, res) => {
   
   try {
     const history = await pool.query(
-      'SELECT * FROM email_history WHERE empId = $1 ORDER BY sentAt DESC',
+      'SELECT * FROM email_history WHERE "empId" = $1 ORDER BY "sentAt" DESC',
       [empId]
     );
     
@@ -453,7 +511,7 @@ app.get('/api/email-history-month/:month', async (req, res) => {
   
   try {
     const history = await pool.query(
-      'SELECT * FROM email_history WHERE month = $1 ORDER BY sentAt DESC',
+      'SELECT * FROM email_history WHERE month = $1 ORDER BY "sentAt" DESC',
       [month]
     );
     
@@ -509,14 +567,37 @@ app.post('/api/test-email-payslip', async (req, res) => {
     const message = `Dear Thirshika K,\n\nPlease find attached your salary payslip.\n\nThis is a test email generated from the HR Payroll System.\n\nRegards,\nHR Payroll Team`;
 
     const mailOptions = {
-      from: process.env.EMAIL_USER,
+      from: `"${defaultFromName}" <${defaultFromEmail}>`,
+      sender: defaultFromEmail,
+      replyTo: defaultReplyTo,
       to: testRecipientEmail,
+      envelope: {
+        from: defaultFromEmail,
+        to: testRecipientEmail,
+      },
       subject: subject,
       text: message,
+      html: `
+        <div style="font-family: Arial, sans-serif; color: #1f2937; line-height: 1.6;">
+          <p>Dear ${testEmployee.name},</p>
+          <p>Please find attached your salary payslip.</p>
+          <p>If you have any questions, please reply to this email or contact the HR department.</p>
+          <p>Regards,<br/><strong>HR Department</strong></p>
+        </div>
+      `,
+      date: new Date(),
+      messageId: `<payslip-test-${uuidv4()}@${defaultFromEmail.split('@')[1]}>`,
+      importance: 'high',
+      headers: {
+        'X-Priority': '3',
+        'X-Mailer': 'HR Department Mailer',
+        'List-Unsubscribe': `<mailto:${defaultReplyTo}>`,
+      },
       attachments: [
         {
           filename: 'Payslip_Thirshika_K.pdf',
-          path: pdfPath
+          path: pdfPath,
+          contentType: 'application/pdf'
         }
       ]
     };
