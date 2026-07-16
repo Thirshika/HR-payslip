@@ -51,6 +51,7 @@ class EmailServiceConfig:
         self.email_reply_to = os.getenv('EMAIL_REPLY_TO') or self.email_from
         self.email_provider = os.getenv('EMAIL_PROVIDER', '').lower()
         self.sendgrid_api_key = os.getenv('SENDGRID_API_KEY')
+        self.brevo_api_key = os.getenv('BREVO_API_KEY')
 
     def validate(self):
         """Validate required email configuration.
@@ -133,10 +134,16 @@ class EmailService:
         self.last_smtp_error = None
         self._close_transporter()
 
+        if self.config.email_provider == 'brevo':
+            logger.info("Using Brevo provider; skipping SMTP initialization")
+            self.transporter = 'brevo'
+            return True
+
         if self.config.email_provider in {'mock', 'simulate', 'disabled'}:
             logger.info("Email provider is %s; skipping SMTP initialization", self.config.email_provider)
             self.transporter = 'simulated'
             return True
+
         # Detailed diagnostics prior to SMTP creation
         host = self.config.smtp_host
         port = self.config.smtp_port
@@ -479,6 +486,96 @@ class EmailService:
             logger.exception("SendGrid request failed")
             return {'success': False, 'error': 'SendGrid request failed', 'details': traceback.format_exc(), 'email': to_email}
 
+    def _send_via_brevo(self, to_email, subject, body_text, body_html, attachments=None):
+        """Send email via Brevo SMTP API."""
+        if not self.config.brevo_api_key:
+            logger.error("Brevo provider selected but BREVO_API_KEY is not configured")
+            return {'success': False, 'provider': 'brevo', 'error': 'BREVO_API_KEY not configured', 'email': to_email}
+
+        sender_name = self.config.email_from_name or 'HR Department'
+        sender_name_parsed, sender_email = self._parse_address(self.config.email_from)
+        if sender_email:
+            sender_name = sender_name_parsed or sender_name
+        else:
+            sender_email = self.config.email_user or self.config.email_from
+
+        if not sender_email:
+            logger.error("Brevo sender email could not be determined from EMAIL_FROM or EMAIL_USER")
+            return {'success': False, 'provider': 'brevo', 'error': 'Sender email is not configured', 'email': to_email}
+
+        payload = {
+            'sender': {
+                'name': sender_name,
+                'email': sender_email,
+            },
+            'to': [{'email': to_email}],
+            'subject': subject,
+            'htmlContent': body_html,
+            'textContent': body_text,
+        }
+
+        if attachments:
+            payload_attachments = []
+            for attachment in attachments:
+                if not isinstance(attachment, dict):
+                    continue
+                content = attachment.get('content')
+                filename = attachment.get('filename') or 'attachment'
+                if not content:
+                    continue
+                encoded = base64.b64encode(content).decode('utf-8')
+                payload_attachments.append({
+                    'name': filename,
+                    'content': encoded,
+                    'contentType': 'application/pdf'
+                })
+            if payload_attachments:
+                payload['attachment'] = payload_attachments
+
+        headers = {
+            'api-key': self.config.brevo_api_key,
+            'Content-Type': 'application/json',
+            'accept': 'application/json',
+        }
+
+        logger.info("Sending email via Brevo to %s", to_email)
+        logger.debug("Brevo payload sender=%s to=%s subject=%s attachments=%s", sender_email, to_email, subject, bool(payload.get('attachment')))
+
+        try:
+            resp = requests.post(
+                'https://api.brevo.com/v3/smtp/email',
+                headers=headers,
+                data=json.dumps(payload),
+                timeout=15,
+            )
+            logger.info("Brevo response status code: %s", resp.status_code)
+            if resp.status_code in (200, 201, 202):
+                logger.info("Email successfully accepted by Brevo for %s", to_email)
+                return {
+                    'success': True,
+                    'provider': 'brevo',
+                    'email': to_email,
+                    'message': 'Email sent successfully via Brevo'
+                }
+            logger.error("Brevo request failed with status %s: %s", resp.status_code, resp.text)
+            return {
+                'success': False,
+                'provider': 'brevo',
+                'error': resp.text or f'Brevo error {resp.status_code}',
+                'status_code': resp.status_code,
+                'email': to_email,
+            }
+        except Exception:
+            brevo_exc = traceback.format_exc()
+            logger.exception("Brevo request failed")
+            return {
+                'success': False,
+                'provider': 'brevo',
+                'error': 'Brevo request failed',
+                'details': brevo_exc,
+                'email': to_email,
+            }
+
     def send_email(self, to_email, subject, body_text, body_html, attachments=None):
         """Send email with attachments using SMTP or fallback provider."""
         try:
@@ -507,6 +604,9 @@ class EmailService:
 
             if self.config.email_provider == 'sendgrid':
                 return self._send_via_sendgrid(to_email, subject, body_text, body_html, attachments)
+
+            if self.config.email_provider == 'brevo':
+                return self._send_via_brevo(to_email, subject, body_text, body_html, attachments)
 
             if not self.transporter:
                 # Attempt to initialize transporter and provide detailed failure info
