@@ -8,9 +8,8 @@ import json
 import logging
 from datetime import datetime
 
-import models
-import database
-from email_service import get_email_service
+from backend import models, database
+from backend.email_service import get_email_service
 
 logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO)
@@ -18,10 +17,23 @@ logging.basicConfig(level=logging.INFO)
 app = FastAPI(title="HR Payslip API")
 
 # Add CORS middleware for frontend access
+# Read allowed origins from environment variable `ALLOWED_ORIGINS`.
+# If not provided, fall back to the explicit default list required by the app.
+# The value should be a comma-separated list of origins. We split and clean
+# the list to remove any accidental whitespace or empty entries.
 allowed_origins = os.getenv(
-    "ALLOWED_ORIGINS", 
-    "http://localhost:5173,http://localhost:3000,https://hr-payslip-frontend.vercel.app,https://hr-payslip-mh66.onrender.com"
+    "ALLOWED_ORIGINS",
+    "http://localhost:5173,"
+    "http://localhost:3000,"
+    "https://hr-payslip-self.vercel.app,"
+    "https://hr-payslip-zlc8.vercel.app,"
+    "https://hr-payslip-frontend.vercel.app,"
+    "https://hr-payslip-mh66.onrender.com"
 ).split(",")
+
+# Trim whitespace and drop empty entries (robust parsing)
+allowed_origins = [o.strip() for o in allowed_origins if o and o.strip()]
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=allowed_origins,
@@ -279,7 +291,7 @@ async def send_payslip_email(payload: dict, db: Session = Depends(get_db)) -> di
         # Store in email history
         try:
             emp_name = employee.get('name', 'Employee')
-            from models import EmailHistory
+            from backend.models import EmailHistory
             email_history = EmailHistory(
                 empId=emp_id,
                 empName=emp_name,
@@ -309,7 +321,7 @@ async def get_email_history(empId: str, db: Session = Depends(get_db)) -> dict:
     """Get email history for an employee"""
     try:
         logger.info(f"[EMAIL HISTORY] Fetching history for employee: {empId}")
-        from models import EmailHistory
+        from backend.models import EmailHistory
         
         history = db.query(EmailHistory).filter(
             EmailHistory.empId == empId
@@ -342,7 +354,7 @@ async def get_email_history_month(month: str, db: Session = Depends(get_db)) -> 
     """Get email history for a month"""
     try:
         logger.info(f"[EMAIL HISTORY] Fetching history for month: {month}")
-        from models import EmailHistory
+        from backend.models import EmailHistory
         
         history = db.query(EmailHistory).filter(
             EmailHistory.month == month
@@ -409,4 +421,10 @@ async def test_email_payslip(payload: dict) -> dict:
         error_msg = f"Error sending test email: {str(e)}"
         logger.error(f"❌ {error_msg}")
         return {"success": False, "error": error_msg}
+
+
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run(app, host="0.0.0.0", port=8000, reload=True)
+
 
