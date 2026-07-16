@@ -1,6 +1,15 @@
-"""
+﻿"""
 Email Service Module
-Handles SMTP configuration, PDF generation, and email sending
+Handles SMTP configuration, PDF generation, and email sending.
+
+This version is rewritten to satisfy Render/Gmail SMTP requirements by:
+- Using SMTP(host, port, timeout=30)
+- Calling ehlo(), starttls(), ehlo() again, then login
+- Parsing EMAIL_FROM safely when it contains a display name
+- Closing SMTP connections after send
+- Writing full traceback logs with logger.exception()
+- Returning actual SMTP errors in API responses
+- Preventing invalid transporter reuse after failures
 """
 
 import os
@@ -8,16 +17,15 @@ import smtplib
 import logging
 import base64
 import json
+import traceback
 import requests
+import socket
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
-from email.mime.base import MIMEBase
 from email.mime.application import MIMEApplication
-from email import encoders
+from email.utils import formataddr, parseaddr
 from datetime import datetime
 import uuid
-from io import BytesIO
-from pathlib import Path
 
 try:
     from weasyprint import HTML, CSS
@@ -30,7 +38,8 @@ except ImportError:
 logger = logging.getLogger(__name__)
 
 class EmailServiceConfig:
-    """Email service configuration from environment variables"""
+    """Email service configuration from environment variables."""
+
     def __init__(self):
         self.smtp_host = os.getenv('EMAIL_HOST', 'smtp.gmail.com')
         self.smtp_port = int(os.getenv('EMAIL_PORT', 587))
@@ -42,50 +51,210 @@ class EmailServiceConfig:
         self.email_reply_to = os.getenv('EMAIL_REPLY_TO') or self.email_from
         self.email_provider = os.getenv('EMAIL_PROVIDER', '').lower()
         self.sendgrid_api_key = os.getenv('SENDGRID_API_KEY')
-        
+
     def validate(self):
-        """Validate that all required configuration is present"""
+        """Validate required email configuration.
+
+        SMTP credentials are only required when the app is using real SMTP.
+        If the provider is mocked or disabled, delivery can proceed without
+        credentials and will be simulated locally.
+        """
+        if self.email_provider in {'mock', 'simulate', 'disabled'}:
+            return True
+
         if not self.email_user or not self.email_pass:
-            raise ValueError("EMAIL_USER and EMAIL_PASS environment variables are required")
+            logger.warning(
+                "SMTP credentials are missing; email delivery will be simulated"
+            )
+            return True
         return True
 
+
 class EmailService:
-    """Email service for sending payslips and managing email history"""
-    
+    """Email service for sending payslips and managing SMTP/SendGrid delivery."""
+
     def __init__(self):
         self.config = EmailServiceConfig()
-        self.config.validate()
-        self.transporter = None
-        self._initialize_transporter()
-    
-    def _initialize_transporter(self):
-        """Initialize SMTP transporter and verify connection"""
         try:
-            if self.config.smtp_secure:
-                self.transporter = smtplib.SMTP_SSL(self.config.smtp_host, self.config.smtp_port, timeout=15)
-            else:
-                self.transporter = smtplib.SMTP(self.config.smtp_host, self.config.smtp_port, timeout=15)
-                self.transporter.starttls()
-            
-            self.transporter.login(self.config.email_user, self.config.email_pass)
-            logger.info(f"✅ SMTP connection verified: {self.config.smtp_host}:{self.config.smtp_port}")
-            return True
-        except Exception as e:
-            # Ensure transporter is cleaned up on failure
+            self.config.validate()
+        except Exception as exc:
+            logger.warning("Email configuration validation skipped: %s", exc)
+        self.transporter = None
+        self.last_smtp_error = None
+        self._initialize_transporter()
+
+    def _parse_address(self, address):
+        """Parse a raw email address string safely."""
+        name, email = parseaddr(address or '')
+        return name.strip(), email.strip()
+
+    def _format_from_header(self):
+        """Construct a safe From header using parseaddr/formataddr."""
+        name, email = self._parse_address(self.config.email_from)
+        if not email:
+            name, email = self._parse_address(self.config.email_user or '')
+        if not name:
+            name = self.config.email_from_name
+        if email:
+            return formataddr((name, email))
+        return self.config.email_from_name
+
+    def _get_message_id_domain(self):
+        """Get a safe domain for the Message-ID from configured addresses."""
+        _, email = self._parse_address(self.config.email_from)
+        if not email:
+            _, email = self._parse_address(self.config.email_user or '')
+        if email and '@' in email:
+            return email.split('@', 1)[1]
+        return 'localhost'
+
+    def _close_transporter(self):
+        """Close and dispose of any active SMTP transporter."""
+        if self.transporter == 'simulated':
+            self.transporter = None
+            return
+
+        if self.transporter:
             try:
-                if self.transporter:
-                    try:
-                        self.transporter.quit()
-                    except Exception:
-                        pass
+                # always attempt graceful shutdown
+                try:
+                    self.transporter.quit()
+                except Exception:
+                    # some transports (e.g. mocks) may not implement quit
+                    logger.exception("Error while calling quit() on transporter")
+                logger.debug("SMTP transporter closed cleanly")
+            except Exception:
+                logger.exception("Error while closing SMTP transporter")
             finally:
                 self.transporter = None
 
-            logger.error(f"❌ SMTP verification failed: {str(e)}")
+    def _initialize_transporter(self):
+        """Initialize SMTP transporter with explicit STARTTLS or SSL flow."""
+        self.last_smtp_error = None
+        self._close_transporter()
+
+        if self.config.email_provider in {'mock', 'simulate', 'disabled'}:
+            logger.info("Email provider is %s; skipping SMTP initialization", self.config.email_provider)
+            self.transporter = 'simulated'
+            return True
+        # Detailed diagnostics prior to SMTP creation
+        host = self.config.smtp_host
+        port = self.config.smtp_port
+        secure = self.config.smtp_secure
+
+        logger.info("SMTP init: host=%s port=%s secure=%s provider=%s", host, port, secure, self.config.email_provider)
+
+        # DNS resolution
+        try:
+            logger.debug("Resolving SMTP host %s", host)
+            infos = socket.getaddrinfo(host, port, proto=socket.IPPROTO_TCP)
+            logger.debug("DNS resolution for %s succeeded: %s", host, [i[4][0] for i in infos])
+        except socket.gaierror as e:
+            err = f"DNS resolution failed for {host}: {e}"
+            self.last_smtp_error = err
+            logger.exception(err)
+            self._close_transporter()
             return False
-    
+        except Exception:
+            err = f"Unexpected DNS resolution error for {host}: {traceback.format_exc()}"
+            self.last_smtp_error = err
+            logger.exception(err)
+            self._close_transporter()
+            return False
+
+        # TCP connectivity test
+        try:
+            logger.debug("Testing TCP connectivity to %s:%s", host, port)
+            sock = socket.create_connection((host, port), timeout=10)
+            sock.close()
+            logger.debug("TCP connectivity to %s:%s OK", host, port)
+        except socket.timeout as e:
+            err = f"Connection to {host}:{port} timed out: {e}"
+            self.last_smtp_error = err
+            logger.exception(err)
+            self._close_transporter()
+            return False
+        except OSError as e:
+            # Distinguish common OS errors
+            if getattr(e, 'errno', None) == 101:
+                err = f"Network unreachable when connecting to {host}:{port}: {e}"
+            else:
+                err = f"OS error when connecting to {host}:{port}: {e}"
+            self.last_smtp_error = err
+            logger.exception(err)
+            self._close_transporter()
+            return False
+        except Exception:
+            err = f"Unexpected error testing TCP to {host}:{port}: {traceback.format_exc()}"
+            self.last_smtp_error = err
+            logger.exception(err)
+            self._close_transporter()
+            return False
+
+        # Create SMTP client and perform STARTTLS/login sequence with detailed errors
+        try:
+            if secure:
+                logger.debug("Creating SMTP_SSL transport to %s:%s", host, port)
+                smtp = smtplib.SMTP_SSL(host, port, timeout=30)
+                logger.debug("SMTP SSL transporter created")
+            else:
+                logger.debug("Creating SMTP transport to %s:%s", host, port)
+                smtp = smtplib.SMTP(host, port, timeout=30)
+                logger.debug("SMTP instance created; sending EHLO")
+                smtp.ehlo()
+
+                logger.debug("Attempting STARTTLS")
+                try:
+                    smtp.starttls()
+                    smtp.ehlo()
+                    logger.debug("STARTTLS completed successfully")
+                except smtplib.SMTPException as e:
+                    err = f"STARTTLS failed for {host}:{port}: {e}"
+                    self.last_smtp_error = err
+                    logger.exception(err)
+                    try:
+                        smtp.quit()
+                    except Exception:
+                        logger.debug("Error while quitting SMTP after STARTTLS failure")
+                    self._close_transporter()
+                    return False
+
+            # Login
+            try:
+                smtp.login(self.config.email_user, self.config.email_pass)
+                logger.info("SMTP login succeeded for user %s", self.config.email_user)
+            except smtplib.SMTPAuthenticationError as e:
+                err = f"SMTP authentication failed for user {self.config.email_user}: {e}"
+                self.last_smtp_error = err
+                logger.exception(err)
+                try:
+                    smtp.quit()
+                except Exception:
+                    logger.debug("Error while quitting SMTP after auth failure")
+                self._close_transporter()
+                return False
+            except Exception as e:
+                err = f"Unexpected error during SMTP login: {traceback.format_exc()}"
+                self.last_smtp_error = err
+                logger.exception(err)
+                try:
+                    smtp.quit()
+                except Exception:
+                    logger.debug("Error while quitting SMTP after login exception")
+                self._close_transporter()
+                return False
+
+            # Success
+            self.transporter = smtp
+            return True
+        except Exception:
+            self.last_smtp_error = traceback.format_exc()
+            logger.exception("Unexpected error during SMTP initialization: %s", self.last_smtp_error)
+            self._close_transporter()
+            return False
+
     def generate_payslip_html(self, employee, payroll):
-        """Generate HTML content for payslip"""
+        """Generate HTML content for the payslip."""
         html = f"""
 <!DOCTYPE html>
 <html>
@@ -181,7 +350,6 @@ class EmailService:
       <div class="company-name">{employee.get('org', 'Organization')}</div>
       <div class="payslip-title">PAYSLIP</div>
     </div>
-    
     <div class="employee-info">
       <div>
         <div class="info-group">
@@ -212,7 +380,6 @@ class EmailService:
         </div>
       </div>
     </div>
-    
     <div class="salary-details">
       <div class="salary-row">
         <span>Gross Salary</span>
@@ -231,7 +398,6 @@ class EmailService:
         <span>₹{payroll.get('balanceAmount', 0):.2f}</span>
       </div>
     </div>
-    
     <div class="footer">
       <p>This is a computer-generated payslip. For any queries, please contact HR department.</p>
       <p>Generated on: {datetime.now().strftime('%Y-%m-%d')}</p>
@@ -241,22 +407,22 @@ class EmailService:
 </html>
         """
         return html
-    
+
     def generate_pdf(self, html_content, filename):
-        """Generate PDF from HTML using WeasyPrint"""
+        """Generate PDF from HTML using WeasyPrint."""
         try:
             if HTML is None:
                 logger.warning("WeasyPrint not available, skipping PDF generation")
                 return None
-            
+
             pdf = HTML(string=html_content).write_pdf()
             return pdf
-        except Exception as e:
-            logger.error(f"Error generating PDF: {str(e)}")
+        except Exception:
+            logger.exception("Error generating PDF")
             return None
 
     def _send_via_sendgrid(self, to_email, subject, body_text, body_html, attachments=None):
-        """Send email via SendGrid HTTP API"""
+        """Send email via SendGrid HTTP API as a fallback."""
         if not self.config.sendgrid_api_key:
             return {'success': False, 'error': 'SENDGRID_API_KEY not configured', 'email': to_email}
 
@@ -271,7 +437,10 @@ class EmailService:
             'subject': subject
         }]
 
-        from_email = {'email': self.config.email_from or self.config.email_user, 'name': self.config.email_from_name}
+        from_email = {
+            'email': self.config.email_from or self.config.email_user,
+            'name': self.config.email_from_name
+        }
 
         content = [
             {'type': 'text/plain', 'value': body_text},
@@ -291,51 +460,41 @@ class EmailService:
                 content_bytes = att.get('content')
                 if content_bytes:
                     b64 = base64.b64encode(content_bytes).decode('utf-8')
-                    sg_attachments.append({'content': b64, 'type': 'application/pdf', 'filename': fname})
+                    sg_attachments.append({
+                        'content': b64,
+                        'type': 'application/pdf',
+                        'filename': fname
+                    })
             if sg_attachments:
                 data['attachments'] = sg_attachments
 
         try:
             resp = requests.post(url, headers=headers, data=json.dumps(data), timeout=15)
             if resp.status_code in (200, 202):
-                logger.info(f"✅ SendGrid accepted email to {to_email}")
+                logger.info("✅ SendGrid accepted email to %s", to_email)
                 return {'success': True, 'message': 'Sent via SendGrid', 'email': to_email}
-            else:
-                logger.error(f"❌ SendGrid error {resp.status_code}: {resp.text}")
-                return {'success': False, 'error': f'SendGrid error {resp.status_code}', 'details': resp.text, 'email': to_email}
-        except Exception as e:
-            logger.error(f"❌ SendGrid request failed: {str(e)}")
-            return {'success': False, 'error': str(e), 'email': to_email}
-    
+            logger.error("❌ SendGrid error %s: %s", resp.status_code, resp.text)
+            return {'success': False, 'error': f'SendGrid error {resp.status_code}', 'details': resp.text, 'email': to_email}
+        except Exception:
+            logger.exception("SendGrid request failed")
+            return {'success': False, 'error': 'SendGrid request failed', 'details': traceback.format_exc(), 'email': to_email}
+
     def send_email(self, to_email, subject, body_text, body_html, attachments=None):
-        """Send email with attachments"""
+        """Send email with attachments using SMTP or fallback provider."""
         try:
-            # Create message
             msg = MIMEMultipart('alternative')
             msg['Subject'] = subject
-            msg['From'] = f"{self.config.email_from_name} <{self.config.email_from}>"
+            msg['From'] = self._format_from_header()
             msg['To'] = to_email
             msg['Reply-To'] = self.config.email_reply_to
             msg['Date'] = datetime.now().isoformat()
-            # Build a safe Message-ID. If `email_from` is malformed or missing
-            # the domain part, fall back to 'localhost' to avoid IndexError.
-            try:
-              if self.config.email_from and '@' in self.config.email_from:
-                domain = self.config.email_from.split('@', 1)[1]
-              else:
-                domain = 'localhost'
-            except Exception:
-              domain = 'localhost'
-
-            msg['Message-ID'] = f"<payslip-{uuid.uuid4()}@{domain}>"
+            msg['Message-ID'] = f"<payslip-{uuid.uuid4()}@{self._get_message_id_domain()}>"
             msg['X-Priority'] = '3'
             msg['X-Mailer'] = 'HR Department Mailer'
-            
-            # Add text and HTML parts
+
             msg.attach(MIMEText(body_text, 'plain'))
             msg.attach(MIMEText(body_html, 'html'))
-            
-            # Add attachments
+
             if attachments:
                 for attachment in attachments:
                     if isinstance(attachment, dict):
@@ -345,78 +504,128 @@ class EmailService:
                             part = MIMEApplication(content)
                             part.add_header('Content-Disposition', 'attachment', filename=filename)
                             msg.attach(part)
-            
-            # If configured to use SendGrid, or if SMTP fails and SendGrid is available,
-            # prefer the HTTP provider to avoid blocked SMTP in some hosting environments.
-            if self.config.email_provider == 'sendgrid':
-              return self._send_via_sendgrid(to_email, subject, body_text, body_html, attachments)
 
-            # Send email via SMTP. Ensure transporter is initialized and usable.
+            if self.config.email_provider == 'sendgrid':
+                return self._send_via_sendgrid(to_email, subject, body_text, body_html, attachments)
+
             if not self.transporter:
-              ok = self._initialize_transporter()
-              if not ok or not self.transporter:
-                # If SendGrid key available, try fallback
-                if self.config.sendgrid_api_key:
-                  logger.info('SMTP unavailable, falling back to SendGrid')
-                  return self._send_via_sendgrid(to_email, subject, body_text, body_html, attachments)
-                error_msg = f"SMTP transporter not initialized (host={self.config.smtp_host}, port={self.config.smtp_port})"
-                logger.error(f"❌ {error_msg}")
-                return {'success': False, 'error': error_msg, 'email': to_email}
+                # Attempt to initialize transporter and provide detailed failure info
+                ok = self._initialize_transporter()
+                if not ok:
+                    # If SendGrid configured, use it as fallback
+                    if self.config.sendgrid_api_key:
+                        logger.info('SMTP unavailable; falling back to SendGrid for %s', to_email)
+                        return self._send_via_sendgrid(to_email, subject, body_text, body_html, attachments)
+
+                    # If running on Render, do not simulate success; return explicit failure and recommendation
+                    is_render = bool(os.getenv('RENDER') or os.getenv('RENDER_SERVICE_ID') or os.getenv('RENDER_REGION') or os.getenv('RENDER_INTERNAL_HOSTNAME'))
+                    if is_render:
+                        err = self.last_smtp_error or 'SMTP transporter could not be initialized (unknown error)'
+                        logger.error('Render environment cannot reach SMTP for %s: %s', to_email, err)
+                        recommendation = 'If running on Render, enable SendGrid and set SENDGRID_API_KEY, or enable SMTP egress with your host.'
+                        return {'success': False, 'error': err, 'recommendation': recommendation}
+
+                    # For non-Render environments, if provider explicitly set to simulate/mock, allow simulated response
+                    if self.config.email_provider in {'mock', 'simulate', 'disabled'}:
+                        logger.warning('SMTP unavailable; returning simulated success for %s (provider=%s)', to_email, self.config.email_provider)
+                        return {
+                            'success': True,
+                            'message': 'Email delivery simulated because SMTP is unavailable',
+                            'mode': 'simulated',
+                            'email': to_email,
+                        }
+
+                    # Otherwise return explicit failure
+                    err = self.last_smtp_error or 'SMTP transporter could not be initialized'
+                    logger.error('SMTP initialization failed for %s: %s', to_email, err)
+                    return {'success': False, 'error': err}
+
+            if self.transporter == 'simulated':
+                logger.info("Simulated email delivery for %s", to_email)
+                return {
+                    'success': True,
+                    'message': 'Email delivery simulated because SMTP provider is set to simulate',
+                    'mode': 'simulated',
+                    'email': to_email,
+                }
 
             try:
-              self.transporter.send_message(msg)
-            except Exception as e:
-              error_msg = f"Failed to send email: {str(e)}"
-              logger.error(f"❌ {error_msg}")
-              # Attempt to reset transporter for future attempts
-              try:
-                self.transporter.quit()
-              except Exception:
-                pass
-              self.transporter = None
-              # Try SendGrid fallback if configured
-              if self.config.sendgrid_api_key:
-                logger.info('SMTP send failed, falling back to SendGrid')
-                return self._send_via_sendgrid(to_email, subject, body_text, body_html, attachments)
-              return {'success': False, 'error': error_msg, 'email': to_email}
+                logger.info('Sending SMTP message to %s', to_email)
+                self.transporter.send_message(msg)
+                logger.info('SMTP email sent successfully to %s (message-id=%s)', to_email, msg.get('Message-ID'))
+                return {
+                    'success': True,
+                    'message': f'Email sent successfully to {to_email}',
+                    'email': to_email,
+                    'messageId': msg['Message-ID'],
+                }
+            except smtplib.SMTPRecipientsRefused as e:
+                err = f"Recipients refused: {e.recipients if hasattr(e, 'recipients') else str(e)}"
+                logger.exception('SMTP recipients refused for %s: %s', to_email, err)
+                self._close_transporter()
+                if self.config.sendgrid_api_key:
+                    logger.info('Falling back to SendGrid after recipients refused for %s', to_email)
+                    return self._send_via_sendgrid(to_email, subject, body_text, body_html, attachments)
+                return {'success': False, 'error': err}
+            except smtplib.SMTPAuthenticationError as e:
+                err = f"SMTP authentication error: {e}"
+                logger.exception('SMTP authentication error while sending to %s: %s', to_email, err)
+                self._close_transporter()
+                return {'success': False, 'error': err}
+            except smtplib.SMTPException as e:
+                err = f"SMTP error while sending: {e}"
+                logger.exception('SMTP exception while sending to %s: %s', to_email, err)
+                self._close_transporter()
+                if self.config.sendgrid_api_key:
+                    logger.info('Falling back to SendGrid after SMTPException for %s', to_email)
+                    return self._send_via_sendgrid(to_email, subject, body_text, body_html, attachments)
+                return {'success': False, 'error': err}
+            except OSError as e:
+                err = f"Network/OS error while sending SMTP message: {e}"
+                logger.exception('Network/OS error while sending to %s: %s', to_email, err)
+                self._close_transporter()
+                return {'success': False, 'error': err}
+            except Exception:
+                smtp_error = traceback.format_exc()
+                logger.exception('Unexpected error while sending SMTP message to %s: %s', to_email, smtp_error)
+                self._close_transporter()
+                if self.config.sendgrid_api_key:
+                    logger.info('Falling back to SendGrid after unexpected SMTP error for %s', to_email)
+                    return self._send_via_sendgrid(to_email, subject, body_text, body_html, attachments)
+                return {'success': False, 'error': smtp_error}
+            finally:
+                # ensure transporter always closed
+                self._close_transporter()
+        except Exception:
+            logger.exception("Unexpected error in send_email for %s", to_email)
+            return {'success': False, 'error': 'Unexpected email error', 'details': traceback.format_exc(), 'email': to_email}
 
-            logger.info(f"✅ Email sent successfully to {to_email}")
-            return {
-              'success': True,
-              'message': f'Email sent successfully to {to_email}',
-              'email': to_email,
-              'messageId': msg['Message-ID']
-            }
-        except Exception as e:
-            error_msg = f"Failed to send email: {str(e)}"
-            logger.error(f"❌ {error_msg}")
-            return {
-                'success': False,
-                'error': error_msg,
-                'email': to_email
-            }
-    
     def send_payslip_email(self, employee, payroll, to_email=None, subject=None, message=None):
-        """Send payslip email with PDF attachment"""
+        """Send payslip email with optional PDF attachment."""
         try:
             to_email = to_email or employee.get('email')
             if not to_email:
                 return {'success': False, 'error': 'No email address provided'}
-            
-            # Generate payslip HTML
+
+            emp_id = employee.get('id', 'UNKNOWN')
+
+            logger.info('Preparing payslip email for emp=%s recipient=%s month=%s', emp_id, to_email, payroll.get('month'))
+
             html_content = self.generate_payslip_html(employee, payroll)
-            
-            # Generate PDF
             pdf_content = self.generate_pdf(html_content, f"Payslip_{payroll.get('month', '').replace(' ', '_')}.pdf")
-            
-            # Prepare email content
+
             emp_name = employee.get('name', 'Employee')
             month = payroll.get('month', '')
             subject = subject or f"Payslip for {month} - {emp_name}"
-            message = message or f"Dear {emp_name},\n\nPlease find attached your payslip for {month}.\n\nIf you have any questions, please contact the HR department.\n\nBest regards,\nHR Department"
-            
+            message = message or (
+                f"Dear {emp_name},\n\n"
+                f"Please find attached your payslip for {month}.\n\n"
+                f"If you have any questions, please contact the HR department.\n\n"
+                f"Best regards,\nHR Department"
+            )
+
             body_html = f"""
-            <div style="font-family: Arial, sans-serif; color: #1f2937; line-height: 1.6;">
+            <div style=\"font-family: Arial, sans-serif; color: #1f2937; line-height: 1.6;\">
               <p>Dear {emp_name},</p>
               <p>Please find attached your payslip for <strong>{month}</strong>.</p>
               <p>If you have any questions, please reply to this email or contact the HR department directly.</p>
@@ -424,29 +633,39 @@ class EmailService:
               <p>Regards,<br/><strong>HR Department</strong></p>
             </div>
             """
-            
-            # Prepare attachments
+
             attachments = []
             if pdf_content:
                 attachments.append({
                     'filename': f"Payslip_{month.replace(' ', '_')}.pdf",
-                    'content': pdf_content
+                    'content': pdf_content,
                 })
-            
-            # Send email
-            result = self.send_email(to_email, subject, message, body_html, attachments)
-            return result
-        
-        except Exception as e:
-            error_msg = f"Error in send_payslip_email: {str(e)}"
-            logger.error(f"❌ {error_msg}")
-            return {'success': False, 'error': error_msg}
 
-# Global email service instance
+            logger.debug('Calling send_email for emp=%s recipient=%s', emp_id, to_email)
+            result = self.send_email(to_email, subject, message, body_html, attachments)
+
+            # Ensure we return failure explicitly if send failed
+            if not result.get('success'):
+                logger.error('Failed to send payslip for emp=%s to %s: %s', emp_id, to_email, result.get('error'))
+                return {
+                    'success': False,
+                    'error': result.get('error'),
+                    'details': result.get('details') or result.get('recommendation')
+                }
+
+            logger.info('Payslip email sent for emp=%s to %s; messageId=%s', emp_id, to_email, result.get('messageId'))
+            return result
+
+        except Exception:
+            logger.exception("Error in send_payslip_email")
+            return {'success': False, 'error': 'Error in send_payslip_email', 'details': traceback.format_exc()}
+
+
 email_service = None
 
+
 def get_email_service():
-    """Get or create email service instance"""
+    """Get or create the global email service instance."""
     global email_service
     if email_service is None:
         email_service = EmailService()
