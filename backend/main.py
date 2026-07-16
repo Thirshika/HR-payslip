@@ -20,7 +20,7 @@ app = FastAPI(title="HR Payslip API")
 # Add CORS middleware for frontend access
 allowed_origins = os.getenv(
     "ALLOWED_ORIGINS", 
-    "http://localhost:5173,http://localhost:3000,https://hr-payslip-frontend.vercel.app,https://hr-payslip-backend.onrender.com"
+    "http://localhost:5173,http://localhost:3000,https://hr-payslip-frontend.vercel.app,https://hr-payslip-mh66.onrender.com"
 ).split(",")
 app.add_middleware(
     CORSMiddleware,

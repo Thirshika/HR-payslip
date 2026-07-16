@@ -4,7 +4,7 @@
 let HR_PASS = localStorage.getItem('tatti_hrpass_v1') || 'HR@Admin2024';
 const COLORS = ['#d4a017','#3a7bd5','#2eaa6e','#c0612f','#7b52c0','#c0297a','#1a8a8a','#8a6a1a','#5a3ac0','#3a9a3a'];
 const MONTHS_LIST = ['January','February','March','April','May','June','July','August','September','October','November','December'];
-const API_BASE_URL = localStorage.getItem('tatti_api_url') || 'https://hr-payslip-backend.onrender.com';
+const API_BASE_URL = localStorage.getItem('tatti_api_url') || 'https://hr-payslip-mh66.onrender.com';
 
 // ── FETCH EMPLOYEES FROM BACKEND API ──
 async function fetchEmployeesFromAPI() {
