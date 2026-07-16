@@ -66,18 +66,18 @@ class EmailService:
             logger.info(f"✅ SMTP connection verified: {self.config.smtp_host}:{self.config.smtp_port}")
             return True
         except Exception as e:
-        # Ensure transporter is cleaned up on failure
-        try:
-          if self.transporter:
+            # Ensure transporter is cleaned up on failure
             try:
-              self.transporter.quit()
-            except Exception:
-              pass
-        finally:
-          self.transporter = None
+                if self.transporter:
+                    try:
+                        self.transporter.quit()
+                    except Exception:
+                        pass
+            finally:
+                self.transporter = None
 
-        logger.error(f"❌ SMTP verification failed: {str(e)}")
-        return False
+            logger.error(f"❌ SMTP verification failed: {str(e)}")
+            return False
     
     def generate_payslip_html(self, employee, payroll):
         """Generate HTML content for payslip"""
