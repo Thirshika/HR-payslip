@@ -141,6 +141,72 @@ def add_employee(employee: EmployeeCreate, db: Session = Depends(get_db)):
 def health_check():
     return {"status": "ok"}
 
+@app.get("/api/import-employees")
+def import_employees_endpoint(db: Session = Depends(get_db)):
+    """Manual endpoint to import employees from exported_employees.json"""
+    try:
+        # Check if employees already exist
+        existing_count = db.query(models.Employee).count()
+        
+        if existing_count > 0:
+            return {
+                "status": "ok",
+                "message": f"Database already has {existing_count} employees",
+                "imported": 0
+            }
+        
+        # Try to load from exported_employees.json
+        import_file = os.path.join(os.path.dirname(__file__), 'exported_employees.json')
+        
+        if not os.path.exists(import_file):
+            return {
+                "status": "error",
+                "message": f"Import file not found: {import_file}"
+            }
+        
+        with open(import_file, 'r', encoding='utf-8') as f:
+            backup_data = json.load(f)
+        
+        employees_data = backup_data.get('EMP', [])
+        
+        if not employees_data:
+            return {
+                "status": "error",
+                "message": "No employees found in import file"
+            }
+        
+        # Import employees
+        for emp_data in employees_data:
+            employee = models.Employee(
+                id=emp_data['id'],
+                name=emp_data.get('name'),
+                org=emp_data.get('org'),
+                branch=emp_data.get('branch'),
+                designation=emp_data.get('designation'),
+                phone=emp_data.get('phone'),
+                email=emp_data.get('email'),
+            )
+            db.add(employee)
+        
+        db.commit()
+        
+        logger.info(f"✅ Imported {len(employees_data)} employees via API endpoint")
+        
+        return {
+            "status": "ok",
+            "message": f"Successfully imported {len(employees_data)} employees",
+            "imported": len(employees_data)
+        }
+        
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Error during import: {str(e)}")
+        return {
+            "status": "error",
+            "message": str(e)
+        }
+
+
 
 # ═══════════════════════════════════════════════════════════════
 # EMAIL SERVICE ENDPOINTS (Integrated)
