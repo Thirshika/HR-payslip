@@ -1,5 +1,10 @@
 from sqlalchemy import Column, String, Float, Integer, DateTime, Text
-from .database import Base
+try:
+    # Prefer package-relative import when running as a package
+    from .database import Base
+except Exception:
+    # Fallback to absolute import when running as a module (uvicorn main:app)
+    from database import Base
 
 class Employee(Base):
     __tablename__ = 'employees'
