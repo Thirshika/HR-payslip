@@ -6,6 +6,9 @@ Handles SMTP configuration, PDF generation, and email sending
 import os
 import smtplib
 import logging
+import base64
+import json
+import requests
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 from email.mime.base import MIMEBase
@@ -37,6 +40,8 @@ class EmailServiceConfig:
         self.email_from_name = os.getenv('EMAIL_FROM_NAME', 'HR Department')
         self.email_from = os.getenv('EMAIL_FROM') or self.email_user
         self.email_reply_to = os.getenv('EMAIL_REPLY_TO') or self.email_from
+      self.email_provider = os.getenv('EMAIL_PROVIDER', '').lower()
+      self.sendgrid_api_key = os.getenv('SENDGRID_API_KEY')
         
     def validate(self):
         """Validate that all required configuration is present"""
@@ -249,6 +254,58 @@ class EmailService:
         except Exception as e:
             logger.error(f"Error generating PDF: {str(e)}")
             return None
+
+      def _send_via_sendgrid(self, to_email, subject, body_text, body_html, attachments=None):
+        """Send email via SendGrid HTTP API"""
+        if not self.sendgrid_api_key:
+          return {'success': False, 'error': 'SENDGRID_API_KEY not configured', 'email': to_email}
+
+        url = 'https://api.sendgrid.com/v3/mail/send'
+        headers = {
+          'Authorization': f'Bearer {self.sendgrid_api_key}',
+          'Content-Type': 'application/json'
+        }
+
+        personalizations = [{
+          'to': [{'email': to_email}],
+          'subject': subject
+        }]
+
+        from_email = {'email': self.config.email_from or self.config.email_user, 'name': self.config.email_from_name}
+
+        content = [
+          {'type': 'text/plain', 'value': body_text},
+          {'type': 'text/html', 'value': body_html}
+        ]
+
+        data = {
+          'personalizations': personalizations,
+          'from': from_email,
+          'content': content
+        }
+
+        if attachments:
+          sg_attachments = []
+          for att in attachments:
+            fname = att.get('filename', 'attachment')
+            content_bytes = att.get('content')
+            if content_bytes:
+              b64 = base64.b64encode(content_bytes).decode('utf-8')
+              sg_attachments.append({'content': b64, 'type': 'application/pdf', 'filename': fname})
+          if sg_attachments:
+            data['attachments'] = sg_attachments
+
+        try:
+          resp = requests.post(url, headers=headers, data=json.dumps(data), timeout=15)
+          if resp.status_code in (200, 202):
+            logger.info(f"✅ SendGrid accepted email to {to_email}")
+            return {'success': True, 'message': 'Sent via SendGrid', 'email': to_email}
+          else:
+            logger.error(f"❌ SendGrid error {resp.status_code}: {resp.text}")
+            return {'success': False, 'error': f'SendGrid error {resp.status_code}', 'details': resp.text, 'email': to_email}
+        except Exception as e:
+          logger.error(f"❌ SendGrid request failed: {str(e)}")
+          return {'success': False, 'error': str(e), 'email': to_email}
     
     def send_email(self, to_email, subject, body_text, body_html, attachments=None):
         """Send email with attachments"""
@@ -289,10 +346,19 @@ class EmailService:
                             part.add_header('Content-Disposition', 'attachment', filename=filename)
                             msg.attach(part)
             
-            # Send email. Ensure transporter is initialized and usable.
+            # If configured to use SendGrid, or if SMTP fails and SendGrid is available,
+            # prefer the HTTP provider to avoid blocked SMTP in some hosting environments.
+            if self.config.email_provider == 'sendgrid':
+              return self._send_via_sendgrid(to_email, subject, body_text, body_html, attachments)
+
+            # Send email via SMTP. Ensure transporter is initialized and usable.
             if not self.transporter:
               ok = self._initialize_transporter()
               if not ok or not self.transporter:
+                # If SendGrid key available, try fallback
+                if self.config.sendgrid_api_key:
+                  logger.info('SMTP unavailable, falling back to SendGrid')
+                  return self._send_via_sendgrid(to_email, subject, body_text, body_html, attachments)
                 error_msg = f"SMTP transporter not initialized (host={self.config.smtp_host}, port={self.config.smtp_port})"
                 logger.error(f"❌ {error_msg}")
                 return {'success': False, 'error': error_msg, 'email': to_email}
@@ -308,14 +374,18 @@ class EmailService:
               except Exception:
                 pass
               self.transporter = None
+              # Try SendGrid fallback if configured
+              if self.config.sendgrid_api_key:
+                logger.info('SMTP send failed, falling back to SendGrid')
+                return self._send_via_sendgrid(to_email, subject, body_text, body_html, attachments)
               return {'success': False, 'error': error_msg, 'email': to_email}
 
             logger.info(f"✅ Email sent successfully to {to_email}")
             return {
-                'success': True,
-                'message': f'Email sent successfully to {to_email}',
-                'email': to_email,
-                'messageId': msg['Message-ID']
+              'success': True,
+              'message': f'Email sent successfully to {to_email}',
+              'email': to_email,
+              'messageId': msg['Message-ID']
             }
         except Exception as e:
             error_msg = f"Failed to send email: {str(e)}"
