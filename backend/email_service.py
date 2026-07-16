@@ -255,57 +255,57 @@ class EmailService:
             logger.error(f"Error generating PDF: {str(e)}")
             return None
 
-      def _send_via_sendgrid(self, to_email, subject, body_text, body_html, attachments=None):
+    def _send_via_sendgrid(self, to_email, subject, body_text, body_html, attachments=None):
         """Send email via SendGrid HTTP API"""
-        if not self.sendgrid_api_key:
-          return {'success': False, 'error': 'SENDGRID_API_KEY not configured', 'email': to_email}
+        if not self.config.sendgrid_api_key:
+            return {'success': False, 'error': 'SENDGRID_API_KEY not configured', 'email': to_email}
 
         url = 'https://api.sendgrid.com/v3/mail/send'
         headers = {
-          'Authorization': f'Bearer {self.sendgrid_api_key}',
-          'Content-Type': 'application/json'
+            'Authorization': f'Bearer {self.config.sendgrid_api_key}',
+            'Content-Type': 'application/json'
         }
 
         personalizations = [{
-          'to': [{'email': to_email}],
-          'subject': subject
+            'to': [{'email': to_email}],
+            'subject': subject
         }]
 
         from_email = {'email': self.config.email_from or self.config.email_user, 'name': self.config.email_from_name}
 
         content = [
-          {'type': 'text/plain', 'value': body_text},
-          {'type': 'text/html', 'value': body_html}
+            {'type': 'text/plain', 'value': body_text},
+            {'type': 'text/html', 'value': body_html}
         ]
 
         data = {
-          'personalizations': personalizations,
-          'from': from_email,
-          'content': content
+            'personalizations': personalizations,
+            'from': from_email,
+            'content': content
         }
 
         if attachments:
-          sg_attachments = []
-          for att in attachments:
-            fname = att.get('filename', 'attachment')
-            content_bytes = att.get('content')
-            if content_bytes:
-              b64 = base64.b64encode(content_bytes).decode('utf-8')
-              sg_attachments.append({'content': b64, 'type': 'application/pdf', 'filename': fname})
-          if sg_attachments:
-            data['attachments'] = sg_attachments
+            sg_attachments = []
+            for att in attachments:
+                fname = att.get('filename', 'attachment')
+                content_bytes = att.get('content')
+                if content_bytes:
+                    b64 = base64.b64encode(content_bytes).decode('utf-8')
+                    sg_attachments.append({'content': b64, 'type': 'application/pdf', 'filename': fname})
+            if sg_attachments:
+                data['attachments'] = sg_attachments
 
         try:
-          resp = requests.post(url, headers=headers, data=json.dumps(data), timeout=15)
-          if resp.status_code in (200, 202):
-            logger.info(f"✅ SendGrid accepted email to {to_email}")
-            return {'success': True, 'message': 'Sent via SendGrid', 'email': to_email}
-          else:
-            logger.error(f"❌ SendGrid error {resp.status_code}: {resp.text}")
-            return {'success': False, 'error': f'SendGrid error {resp.status_code}', 'details': resp.text, 'email': to_email}
+            resp = requests.post(url, headers=headers, data=json.dumps(data), timeout=15)
+            if resp.status_code in (200, 202):
+                logger.info(f"✅ SendGrid accepted email to {to_email}")
+                return {'success': True, 'message': 'Sent via SendGrid', 'email': to_email}
+            else:
+                logger.error(f"❌ SendGrid error {resp.status_code}: {resp.text}")
+                return {'success': False, 'error': f'SendGrid error {resp.status_code}', 'details': resp.text, 'email': to_email}
         except Exception as e:
-          logger.error(f"❌ SendGrid request failed: {str(e)}")
-          return {'success': False, 'error': str(e), 'email': to_email}
+            logger.error(f"❌ SendGrid request failed: {str(e)}")
+            return {'success': False, 'error': str(e), 'email': to_email}
     
     def send_email(self, to_email, subject, body_text, body_html, attachments=None):
         """Send email with attachments"""
