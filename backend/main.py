@@ -8,8 +8,16 @@ import json
 import logging
 from datetime import datetime
 
-from backend import models, database
-from backend.email_service import get_email_service
+# Import modules in a way that works both when running as a package
+# (e.g. `uvicorn backend.main:app`) and when running from inside the
+# `backend` directory as a module (e.g. `uvicorn main:app`). Try package
+# imports first, then fall back to direct local imports.
+try:
+    from backend import models, database
+    from backend.email_service import get_email_service
+except Exception:
+    import models, database
+    from email_service import get_email_service
 
 logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO)
@@ -291,7 +299,10 @@ async def send_payslip_email(payload: dict, db: Session = Depends(get_db)) -> di
         # Store in email history
         try:
             emp_name = employee.get('name', 'Employee')
-            from backend.models import EmailHistory
+            try:
+                from backend.models import EmailHistory
+            except Exception:
+                from models import EmailHistory
             email_history = EmailHistory(
                 empId=emp_id,
                 empName=emp_name,
@@ -321,7 +332,10 @@ async def get_email_history(empId: str, db: Session = Depends(get_db)) -> dict:
     """Get email history for an employee"""
     try:
         logger.info(f"[EMAIL HISTORY] Fetching history for employee: {empId}")
-        from backend.models import EmailHistory
+        try:
+            from backend.models import EmailHistory
+        except Exception:
+            from models import EmailHistory
         
         history = db.query(EmailHistory).filter(
             EmailHistory.empId == empId
@@ -354,7 +368,10 @@ async def get_email_history_month(month: str, db: Session = Depends(get_db)) -> 
     """Get email history for a month"""
     try:
         logger.info(f"[EMAIL HISTORY] Fetching history for month: {month}")
-        from backend.models import EmailHistory
+        try:
+            from backend.models import EmailHistory
+        except Exception:
+            from models import EmailHistory
         
         history = db.query(EmailHistory).filter(
             EmailHistory.month == month
