@@ -2160,7 +2160,7 @@ function renderHistTable(fl, sel){
               <button class="btn btn-o btn-xs" onclick="event.stopPropagation();openSlip('${r.empId}','${sel}')">👁 View</button>
             </td>
             <td style="text-align:center;">
-              <span class="badge ${r.emailStatus==='Sent'?'b-grn':r.emailStatus==='Failed'?'b-red':'b-gray'}" style="font-size:9px;">${r.emailStatus||'Pending'}</span>
+              <span class="badge ${r.emailStatus==='Sent'?'b-grn':r.emailStatus==='Failed'?'b-red':'b-gold'}" style="font-size:9px;">${r.emailStatus||'Pending'}</span>
             </td>
           </tr>`;
         }).join('')}

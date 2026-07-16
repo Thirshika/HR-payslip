@@ -1,5 +1,6 @@
 from fastapi import FastAPI, HTTPException, Depends
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 from typing import List, Optional, Any
 from sqlalchemy.orm import Session
@@ -257,14 +258,14 @@ async def send_payslip_email(payload: dict, db: Session = Depends(get_db)) -> di
             # Fetch from database
             emp_record = db.query(models.Employee).filter(models.Employee.id == emp_id).first()
             if not emp_record:
-                return {"success": False, "error": "Employee not found"}
+                raise HTTPException(status_code=404, detail="Employee not found")
             
             payroll_record = db.query(models.PayrollRecord).filter(
                 models.PayrollRecord.empId == emp_id,
                 models.PayrollRecord.month == month
             ).first()
             if not payroll_record:
-                return {"success": False, "error": "Payroll record not found"}
+                raise HTTPException(status_code=404, detail="Payroll record not found")
             
             employee = {
                 'id': emp_record.id,
@@ -303,14 +304,15 @@ async def send_payslip_email(payload: dict, db: Session = Depends(get_db)) -> di
                 from backend.models import EmailHistory
             except Exception:
                 from models import EmailHistory
+            status_value = 'Sent' if result.get('success') else 'Failed'
             email_history = EmailHistory(
                 empId=emp_id,
                 empName=emp_name,
                 email=to_email,
                 month=month,
                 sentAt=datetime.now(),
-                status='Sent' if result['success'] else 'Failed',
-                errorMessage=None if result['success'] else result.get('error')
+                status=status_value,
+                errorMessage=None if result.get('success') else (result.get('error') or result.get('details') or 'Unknown error')
             )
             db.add(email_history)
             db.commit()
@@ -318,13 +320,28 @@ async def send_payslip_email(payload: dict, db: Session = Depends(get_db)) -> di
         except Exception as db_error:
             logger.warning(f"[EMAIL HISTORY] Could not record email history: {str(db_error)}")
             db.rollback()
-        
-        return result
+
+        response_body = {
+            'success': bool(result.get('success')),
+            'status': 'sent' if result.get('success') else 'failed',
+            'message': result.get('message') or ('Email sent successfully' if result.get('success') else 'Email sending failed'),
+            'error': None if result.get('success') else (result.get('error') or result.get('details') or 'Unknown email error'),
+            'provider': result.get('provider'),
+            'email': to_email,
+        }
+        if result.get('success'):
+            return JSONResponse(status_code=200, content=response_body)
+        return JSONResponse(status_code=400, content=response_body)
     
     except Exception as e:
         error_msg = f"Error sending payslip email: {str(e)}"
         logger.error(f"❌ {error_msg}")
-        return {"success": False, "error": error_msg}
+        return JSONResponse(status_code=500, content={
+            'success': False,
+            'status': 'failed',
+            'message': 'Email sending failed due to server error',
+            'error': error_msg,
+        })
 
 
 @app.get("/api/email-history/{empId}")

@@ -55,32 +55,52 @@ function PayslipView() {
 
     try {
       console.log('[Email Send] Sending email to:', employeeEmail);
-      console.log('[Email Send] Backend URL:', `${API_BASE_URL}/api/test-email-payslip`);
+      console.log('[Email Send] Backend URL:', `${API_BASE_URL}/api/send-payslip-email`);
       
-      const response = await fetch(`${API_BASE_URL}/api/test-email-payslip`, {
+      const response = await fetch(`${API_BASE_URL}/api/send-payslip-email`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ email: employeeEmail }),
+        body: JSON.stringify({
+          empId: 'TEST001',
+          month: 'January 2024',
+          customEmail: employeeEmail,
+          employee: {
+            id: 'TEST001',
+            name: 'Test User',
+            org: 'HR Test Organization',
+            branch: 'Test Branch',
+            designation: 'Test Designation',
+            email: employeeEmail,
+            phone: '1234567890'
+          },
+          payroll: {
+            month: 'January 2024',
+            gross: 50000.00,
+            netPayable: 45000.00,
+            paidAmount: 45000.00,
+            balanceAmount: 0.00
+          }
+        }),
       });
 
       console.log('[Email Send] Response status:', response.status);
       const data = await response.json();
       console.log('[Email Send] Response data:', data);
 
-      if (data.success) {
+      if (response.ok && data.success) {
         setMessage(data.message || 'Email sent successfully');
         setMessageType('success');
         console.log('[Email Send] Email sent successfully');
-        
-        // Refresh email history after successful send
-        setTimeout(() => fetchEmailHistory(), 1000);
       } else {
-        setMessage(data.error || 'Failed to send payslip');
+        const errorMessage = data.error || data.message || 'Failed to send payslip';
+        setMessage(errorMessage);
         setMessageType('error');
-        console.log('[Email Send] Email send failed:', data.error);
+        console.log('[Email Send] Email send failed:', errorMessage);
       }
+
+      setTimeout(() => fetchEmailHistory(), 1000);
     } catch (error) {
       const errorMsg = `Error sending payslip: ${error.message}`;
       setMessage(errorMsg);
@@ -401,29 +421,34 @@ function PayslipView() {
                   </tr>
                 </thead>
                 <tbody>
-                  {emailHistory.map((record, index) => (
-                    <tr key={index} style={{ borderBottom: '1px solid #e0e0e0' }}>
-                      <td style={{ padding: '8px' }}>
-                        {record.sentAt ? new Date(record.sentAt).toLocaleDateString() : 'N/A'}
-                      </td>
-                      <td style={{ padding: '8px' }}>{record.month || 'N/A'}</td>
-                      <td style={{ padding: '8px' }}>
-                        <span style={{
-                          padding: '3px 8px',
-                          borderRadius: '4px',
-                          backgroundColor: record.status === 'Accepted' ? '#d4edda' : '#f8d7da',
-                          color: record.status === 'Accepted' ? '#155724' : '#721c24',
-                          fontSize: '11px',
-                          fontWeight: 'bold'
-                        }}>
-                          {record.status}
-                        </span>
-                      </td>
-                      <td style={{ padding: '8px', color: '#dc3545', fontSize: '11px' }}>
-                        {record.errorMessage || '—'}
-                      </td>
-                    </tr>
-                  ))}
+                  {emailHistory.map((record, index) => {
+                    const normalizedStatus = record.status ? record.status.toLowerCase() : 'pending';
+                    const badgeStyles = {
+                      padding: '3px 8px',
+                      borderRadius: '4px',
+                      fontSize: '11px',
+                      fontWeight: 'bold',
+                      backgroundColor: normalizedStatus === 'sent' ? '#d4edda' : normalizedStatus === 'failed' ? '#f8d7da' : '#fff3cd',
+                      color: normalizedStatus === 'sent' ? '#155724' : normalizedStatus === 'failed' ? '#721c24' : '#856404',
+                    };
+
+                    return (
+                      <tr key={index} style={{ borderBottom: '1px solid #e0e0e0' }}>
+                        <td style={{ padding: '8px' }}>
+                          {record.sentAt ? new Date(record.sentAt).toLocaleDateString() : 'N/A'}
+                        </td>
+                        <td style={{ padding: '8px' }}>{record.month || 'N/A'}</td>
+                        <td style={{ padding: '8px' }}>
+                          <span style={badgeStyles}>
+                            {normalizedStatus === 'sent' ? 'Sent' : normalizedStatus === 'failed' ? 'Failed' : 'Pending'}
+                          </span>
+                        </td>
+                        <td style={{ padding: '8px', color: '#dc3545', fontSize: '11px' }}>
+                          {record.errorMessage || '—'}
+                        </td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
             )}
