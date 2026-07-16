@@ -66,8 +66,18 @@ class EmailService:
             logger.info(f"✅ SMTP connection verified: {self.config.smtp_host}:{self.config.smtp_port}")
             return True
         except Exception as e:
-            logger.error(f"❌ SMTP verification failed: {str(e)}")
-            return False
+        # Ensure transporter is cleaned up on failure
+        try:
+          if self.transporter:
+            try:
+              self.transporter.quit()
+            except Exception:
+              pass
+        finally:
+          self.transporter = None
+
+        logger.error(f"❌ SMTP verification failed: {str(e)}")
+        return False
     
     def generate_payslip_html(self, employee, payroll):
         """Generate HTML content for payslip"""
@@ -250,7 +260,17 @@ class EmailService:
             msg['To'] = to_email
             msg['Reply-To'] = self.config.email_reply_to
             msg['Date'] = datetime.now().isoformat()
-            msg['Message-ID'] = f"<payslip-{uuid.uuid4()}@{self.config.email_from.split('@')[1]}>"
+            # Build a safe Message-ID. If `email_from` is malformed or missing
+            # the domain part, fall back to 'localhost' to avoid IndexError.
+            try:
+              if self.config.email_from and '@' in self.config.email_from:
+                domain = self.config.email_from.split('@', 1)[1]
+              else:
+                domain = 'localhost'
+            except Exception:
+              domain = 'localhost'
+
+            msg['Message-ID'] = f"<payslip-{uuid.uuid4()}@{domain}>"
             msg['X-Priority'] = '3'
             msg['X-Mailer'] = 'HR Department Mailer'
             
@@ -269,12 +289,27 @@ class EmailService:
                             part.add_header('Content-Disposition', 'attachment', filename=filename)
                             msg.attach(part)
             
-            # Send email
+            # Send email. Ensure transporter is initialized and usable.
             if not self.transporter:
-                self._initialize_transporter()
-            
-            self.transporter.send_message(msg)
-            
+              ok = self._initialize_transporter()
+              if not ok or not self.transporter:
+                error_msg = f"SMTP transporter not initialized (host={self.config.smtp_host}, port={self.config.smtp_port})"
+                logger.error(f"❌ {error_msg}")
+                return {'success': False, 'error': error_msg, 'email': to_email}
+
+            try:
+              self.transporter.send_message(msg)
+            except Exception as e:
+              error_msg = f"Failed to send email: {str(e)}"
+              logger.error(f"❌ {error_msg}")
+              # Attempt to reset transporter for future attempts
+              try:
+                self.transporter.quit()
+              except Exception:
+                pass
+              self.transporter = None
+              return {'success': False, 'error': error_msg, 'email': to_email}
+
             logger.info(f"✅ Email sent successfully to {to_email}")
             return {
                 'success': True,
