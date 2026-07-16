@@ -2708,28 +2708,13 @@ function doSendPayslipEmail(empId, month, toEmail) {
   .then(data => {
     if (data.success) {
       toast('✅ Payslip emailed to ' + toEmail);
-      if (r) {
-        r.emailStatus = 'Sent';
-        save();
-        if (document.getElementById('hrMain')) pgHistory(document.getElementById('hrMain'));
-      }
     } else {
       toast('❌ Email failed: ' + (data.error || 'Unknown error'), 'err');
-      if (r) {
-        r.emailStatus = 'Failed';
-        save();
-        if (document.getElementById('hrMain')) pgHistory(document.getElementById('hrMain'));
-      }
     }
   })
   .catch(err => {
     console.error('Email service error:', err);
     toast('❌ Cannot reach email service — make sure it is running on port 3001', 'err');
-    if (r) {
-      r.emailStatus = 'Failed';
-      save();
-      if (document.getElementById('hrMain')) pgHistory(document.getElementById('hrMain'));
-    }
   });
 }
 

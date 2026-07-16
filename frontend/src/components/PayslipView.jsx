@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import Modal from './Modal.jsx';
 
 function PayslipView() {
@@ -7,16 +7,57 @@ function PayslipView() {
   const [message, setMessage] = useState('');
   const [messageType, setMessageType] = useState('');
   const [employeeEmail] = useState('thirshikannan07@gmail.com');
+  const [emailHistory, setEmailHistory] = useState([]);
+  const [historyLoading, setHistoryLoading] = useState(false);
+  
+  // Get backend API URL from environment
+  const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 
+    (import.meta.env.DEV ? 'http://localhost:8000' : 'https://hr-payslip-backend.onrender.com');
+
+  // Fetch email history when component mounts or modal opens
+  useEffect(() => {
+    if (isModalOpen) {
+      fetchEmailHistory();
+    }
+  }, [isModalOpen]);
+
+  const fetchEmailHistory = async () => {
+    setHistoryLoading(true);
+    try {
+      console.log('[Email History] Fetching from backend:', `${API_BASE_URL}/api/email-history/TEST001`);
+      const response = await fetch(`${API_BASE_URL}/api/email-history/TEST001`, {
+        method: 'GET',
+        headers: { 'Content-Type': 'application/json' },
+      });
+
+      const data = await response.json();
+      console.log('[Email History] Response:', data);
+
+      if (data.success) {
+        setEmailHistory(data.history || []);
+      } else {
+        console.warn('[Email History] Failed to fetch:', data.error);
+        setEmailHistory([]);
+      }
+    } catch (error) {
+      console.error('[Email History] Error fetching history:', error);
+      setEmailHistory([]);
+    } finally {
+      setHistoryLoading(false);
+    }
+  };
 
   const handleEmailPayslip = async () => {
-    console.log('Email button clicked');
+    console.log('[Email Send] Button clicked');
     setIsLoading(true);
     setMessage('');
     setMessageType('');
 
     try {
-      console.log('Sending email to:', employeeEmail);
-      const response = await fetch('http://localhost:3001/api/test-email-payslip', {
+      console.log('[Email Send] Sending email to:', employeeEmail);
+      console.log('[Email Send] Backend URL:', `${API_BASE_URL}/api/test-email-payslip`);
+      
+      const response = await fetch(`${API_BASE_URL}/api/test-email-payslip`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -24,23 +65,27 @@ function PayslipView() {
         body: JSON.stringify({ email: employeeEmail }),
       });
 
-      console.log('Response status:', response.status);
+      console.log('[Email Send] Response status:', response.status);
       const data = await response.json();
-      console.log('Response data:', data);
+      console.log('[Email Send] Response data:', data);
 
       if (data.success) {
-        setMessage(data.message);
+        setMessage(data.message || 'Email sent successfully');
         setMessageType('success');
-        console.log('Email sent successfully');
+        console.log('[Email Send] Email sent successfully');
+        
+        // Refresh email history after successful send
+        setTimeout(() => fetchEmailHistory(), 1000);
       } else {
         setMessage(data.error || 'Failed to send payslip');
         setMessageType('error');
-        console.log('Email send failed:', data.error);
+        console.log('[Email Send] Email send failed:', data.error);
       }
     } catch (error) {
-      setMessage('Error sending payslip: ' + error.message);
+      const errorMsg = `Error sending payslip: ${error.message}`;
+      setMessage(errorMsg);
       setMessageType('error');
-      console.error('Error sending payslip:', error);
+      console.error('[Email Send] Exception:', error);
     } finally {
       setIsLoading(false);
     }
@@ -333,6 +378,55 @@ function PayslipView() {
             <p style={{ margin: '0 0 5px 0' }}>This is a computer-generated payslip. For any queries, please contact HR department.</p>
             <p style={{ margin: '0 0 5px 0' }}>Generated on: {new Date().toLocaleDateString()}</p>
             <p style={{ margin: '0' }}>© 2024 Test Organization. All rights reserved.</p>
+          </div>
+
+          {/* Email History Section */}
+          <div style={{ marginTop: '30px', paddingTop: '20px', borderTop: '2px solid #e0e0e0' }}>
+            <h4 style={{ margin: '0 0 15px 0', color: '#0d1b2a', fontSize: '14px' }}>
+              📧 Email History
+              {historyLoading && <span style={{ fontSize: '12px', color: '#666', marginLeft: '10px' }}>(Loading...)</span>}
+            </h4>
+            {emailHistory.length === 0 ? (
+              <p style={{ color: '#666', fontSize: '12px', margin: '0' }}>
+                {historyLoading ? 'Fetching email history...' : 'No emails sent yet'}
+              </p>
+            ) : (
+              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12px' }}>
+                <thead>
+                  <tr style={{ backgroundColor: '#f8f9fa', borderBottom: '2px solid #e0e0e0' }}>
+                    <th style={{ padding: '8px', textAlign: 'left' }}>Date</th>
+                    <th style={{ padding: '8px', textAlign: 'left' }}>Month</th>
+                    <th style={{ padding: '8px', textAlign: 'left' }}>Status</th>
+                    <th style={{ padding: '8px', textAlign: 'left' }}>Error</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {emailHistory.map((record, index) => (
+                    <tr key={index} style={{ borderBottom: '1px solid #e0e0e0' }}>
+                      <td style={{ padding: '8px' }}>
+                        {record.sentAt ? new Date(record.sentAt).toLocaleDateString() : 'N/A'}
+                      </td>
+                      <td style={{ padding: '8px' }}>{record.month || 'N/A'}</td>
+                      <td style={{ padding: '8px' }}>
+                        <span style={{
+                          padding: '3px 8px',
+                          borderRadius: '4px',
+                          backgroundColor: record.status === 'Accepted' ? '#d4edda' : '#f8d7da',
+                          color: record.status === 'Accepted' ? '#155724' : '#721c24',
+                          fontSize: '11px',
+                          fontWeight: 'bold'
+                        }}>
+                          {record.status}
+                        </span>
+                      </td>
+                      <td style={{ padding: '8px', color: '#dc3545', fontSize: '11px' }}>
+                        {record.errorMessage || '—'}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
           </div>
         </div>
 
