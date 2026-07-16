@@ -1,0 +1,312 @@
+{
+  "version": "v7",
+  "exportedOn": "2026-07-16 13:43:00.048767",
+  "EMP": [
+    {
+      "id": "EMP001",
+      "name": "Shanthi J",
+      "org": "Tamilnadu Advanced Technical Training Institute",
+      "branch": "Anna Salai",
+      "designation": "Admin",
+      "phone": "+916369131128",
+      "email": "shanthijagan16@gmail.com"
+    },
+    {
+      "id": "EMP002",
+      "name": "Mareeswari.P",
+      "org": "Tamilnadu Advanced Technical Training Institute",
+      "branch": "Anna Salai",
+      "designation": "Admin",
+      "phone": "+919698392701",
+      "email": "sharmi.shanthi@gmail.com"
+    },
+    {
+      "id": "EMP003",
+      "name": "Sheeba Rani S",
+      "org": "Tamilnadu Advanced Technical Training Institute",
+      "branch": "Anna Salai",
+      "designation": "Admin",
+      "phone": "+916383151521",
+      "email": "mis@tatti.in"
+    },
+    {
+      "id": "EMP004",
+      "name": "V.MURUGA LAKSHMI",
+      "org": "Tamilnadu Advanced Technical Training Institute",
+      "branch": "Anna Salai",
+      "designation": "Admin",
+      "phone": "+919345039665",
+      "email": "darunmaha19@gmail.com"
+    },
+    {
+      "id": "EMP005",
+      "name": "GAYATHRI GOPAL",
+      "org": "Tamilnadu Advanced Technical Training Institute",
+      "branch": "Anna Salai",
+      "designation": "MIS",
+      "phone": "+919344530463",
+      "email": "be.gayathrigopal@gmail.com"
+    },
+    {
+      "id": "EMP006",
+      "name": "Presitha J",
+      "org": "Tamilnadu Advanced Technical Training Institute",
+      "branch": "Anna Salai",
+      "designation": "Tele Caller",
+      "phone": "+919884785887",
+      "email": "tatti.projects.user4@gmail.com"
+    },
+    {
+      "id": "EMP007",
+      "name": "Mohammed Haniffa A",
+      "org": "R M Educational Trust",
+      "branch": "Gee Gee Complex",
+      "designation": "Admin",
+      "phone": "+919790804455",
+      "email": "haniffa.tatti@gmail.com"
+    },
+    {
+      "id": "EMP008",
+      "name": "Shanthi.J",
+      "org": "R M Educational Trust",
+      "branch": "Gee Gee Complex",
+      "designation": "Admin",
+      "phone": "+918754515316",
+      "email": "shanthijagan16@gmail.com"
+    },
+    {
+      "id": "EMP009",
+      "name": "Sridevi M",
+      "org": "R M Educational Trust",
+      "branch": "Gee Gee Complex",
+      "designation": "Others",
+      "phone": "+918939773699",
+      "email": "test@gmail.com"
+    },
+    {
+      "id": "EMP010",
+      "name": "Murugesan.P",
+      "org": "R M Educational Trust",
+      "branch": "Gee Gee Complex",
+      "designation": "Admin",
+      "phone": "+916383080464",
+      "email": "muruskendra@yahoo.com"
+    },
+    {
+      "id": "EMP011",
+      "name": "Jeya Kumar L",
+      "org": "Tamilnadu Advanced Technical Training Institute",
+      "branch": "Anna Salai",
+      "designation": "MIS",
+      "phone": "8523993451",
+      "email": ""
+    },
+    {
+      "id": "EMP012",
+      "name": "Lakshmanan.M.R",
+      "org": "Tamilnadu Advanced Technical Training Institute",
+      "branch": "Anna Salai",
+      "designation": "Admin",
+      "phone": "9551228044",
+      "email": "operations@tatti.in"
+    },
+    {
+      "id": "EMP013",
+      "name": "Narmadha S",
+      "org": "Tatti_St.Joseph University",
+      "branch": "Nazarethpet",
+      "designation": "MIS",
+      "phone": "6374956945",
+      "email": "narmadhashanmugk@gmail.com"
+    },
+    {
+      "id": "EMP015",
+      "name": "A. JOSEPH BENOIT",
+      "org": "Tamilnadu Advanced Technical Training Institute",
+      "branch": "Anna Salai",
+      "designation": "Others",
+      "phone": "7094060802",
+      "email": "kevinchelladuraiii@gmail.com"
+    },
+    {
+      "id": "EMP016",
+      "name": "Vishnu Prakash M",
+      "org": "Tatti_PMIST",
+      "branch": "Thanjavur",
+      "designation": "SPOC",
+      "phone": "9952687556",
+      "email": "ksmvishnu.prakash6@gmail.com"
+    },
+    {
+      "id": "EMP017",
+      "name": "R RANJITH",
+      "org": "Tatti_St.Joseph University",
+      "branch": "Tindivanam",
+      "designation": "SPOC",
+      "phone": "7338703050",
+      "email": "ranjithrajaram92@gmail.com"
+    },
+    {
+      "id": "EMP018",
+      "name": "JASEENA SIDHIKA",
+      "org": "Tatti_PMIST",
+      "branch": "Thanjavur",
+      "designation": "Tele Caller",
+      "phone": "7845327525",
+      "email": "jaseenasidhika@gmail.com"
+    },
+    {
+      "id": "EMP019",
+      "name": "Siva Aiswarya",
+      "org": "Tatti_St.Joseph University",
+      "branch": "Nazarethpet",
+      "designation": "Tele Caller",
+      "phone": "6380762725",
+      "email": "Catycuty1234@gmail.com"
+    },
+    {
+      "id": "EMP020",
+      "name": "Sandhya",
+      "org": "Tatti_St.Joseph University",
+      "branch": "Nazarethpet",
+      "designation": "Tele Caller",
+      "phone": "7358544749",
+      "email": "harishtrl4798@gmail.com"
+    },
+    {
+      "id": "EMP021",
+      "name": "Malini",
+      "org": "Tatti_St.Joseph University",
+      "branch": "Nazarethpet",
+      "designation": "Tele Caller",
+      "phone": "8148670177",
+      "email": "malinikrishna421@gmail.com"
+    },
+    {
+      "id": "EMP022",
+      "name": "J Eliya Martin",
+      "org": "Tatti_St.Joseph University",
+      "branch": "Nazarethpet",
+      "designation": "SPOC",
+      "phone": "9677092725",
+      "email": "eliyamartin25@gmail.com"
+    },
+    {
+      "id": "EMP014",
+      "name": "Thirshika K",
+      "org": "Tamilnadu Advanced Technical Training Institute",
+      "branch": "Anna Salai",
+      "designation": "MIS",
+      "phone": "9566313466",
+      "email": "tatti.projects.user16@gmail.com"
+    },
+    {
+      "id": "EMP023",
+      "name": "Sudharsan D S",
+      "org": "Tamilnadu Advanced Technical Training Institute",
+      "branch": "Anna Salai",
+      "designation": "MIS",
+      "phone": "8220266137",
+      "email": "tatti.projects.user7@gmail.com"
+    },
+    {
+      "id": "EMP024",
+      "name": "A. Biviya",
+      "org": "Tatti_PMIST",
+      "branch": "Thanjavur",
+      "designation": "Tele Caller",
+      "phone": "9344306256",
+      "email": "bibiyab19@gmail.com"
+    },
+    {
+      "id": "EMP025",
+      "name": "K. Pavan Athithya",
+      "org": "Tatti_PMIST",
+      "branch": "Thanjavur",
+      "designation": "Tele Caller",
+      "phone": "9360459488",
+      "email": "pavanadithya007@gmail.com"
+    },
+    {
+      "id": "EMP026",
+      "name": "Baskaran",
+      "org": "R M Educational Trust",
+      "branch": "Gee Gee Complex",
+      "designation": "Others",
+      "phone": "962678607",
+      "email": ""
+    },
+    {
+      "id": "EMP027",
+      "name": "JAYABHARATHI.A",
+      "org": "Tatti_St.Joseph University",
+      "branch": "Nazarethpet",
+      "designation": "Tele Caller",
+      "phone": "8220515271",
+      "email": "bharathiasothaman6@gmail.com"
+    },
+    {
+      "id": "EMP028",
+      "name": "J.Catherine Deepa",
+      "org": "Tamilnadu Advanced Technical Training Institute",
+      "branch": "Anna Salai",
+      "designation": "MIS",
+      "phone": "6385545578",
+      "email": "johncathy2002@gmail.com"
+    },
+    {
+      "id": "EMP029",
+      "name": "K Poovarasi",
+      "org": "Tamilnadu Advanced Technical Training Institute",
+      "branch": "Anna Salai",
+      "designation": "MIS",
+      "phone": "8220266137",
+      "email": "kpoovarasi030603@gmail.com"
+    },
+    {
+      "id": "EMP030",
+      "name": "Subhalakshmi SS",
+      "org": "Tatti_St.Joseph University",
+      "branch": "Nazarethpet",
+      "designation": "Tele Caller",
+      "phone": "7550161236",
+      "email": "ss7550161236@gmail.com"
+    },
+    {
+      "id": "EMP031",
+      "name": "Narmatha Seenuvasan",
+      "org": "Tatti_St.Joseph University",
+      "branch": "Nazarethpet",
+      "designation": "Tele Caller",
+      "phone": "8148251402",
+      "email": "narmathas1402@gmail.com"
+    },
+    {
+      "id": "EMP032",
+      "name": "Saranya",
+      "org": "Tatti_PMIST",
+      "branch": "Thanjavur",
+      "designation": "Tele Caller",
+      "phone": "9597268245",
+      "email": "saranyasekar8523@gmail.com"
+    },
+    {
+      "id": "EMP033",
+      "name": "S.KAVIYA",
+      "org": "Tatti_PMIST",
+      "branch": "Thanjavur",
+      "designation": "Tele Caller",
+      "phone": "7358394842",
+      "email": "spkaviyasiva@gmail.com"
+    },
+    {
+      "id": "EMP034",
+      "name": "Deeepti",
+      "org": "Tatti_PMIST",
+      "branch": "Thanjavur",
+      "designation": "Tele Caller",
+      "phone": "",
+      "email": ""
+    }
+  ]
+}
