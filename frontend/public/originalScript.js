@@ -4,6 +4,24 @@
 let HR_PASS = localStorage.getItem('tatti_hrpass_v1') || 'HR@Admin2024';
 const COLORS = ['#d4a017','#3a7bd5','#2eaa6e','#c0612f','#7b52c0','#c0297a','#1a8a8a','#8a6a1a','#5a3ac0','#3a9a3a'];
 const MONTHS_LIST = ['January','February','March','April','May','June','July','August','September','October','November','December'];
+const API_BASE_URL = localStorage.getItem('tatti_api_url') || 'https://hr-payslip-backend.onrender.com';
+
+// ── FETCH EMPLOYEES FROM BACKEND API ──
+async function fetchEmployeesFromAPI() {
+  try {
+    const response = await fetch(`${API_BASE_URL}/api/employees`);
+    if (response.ok) {
+      const employees = await response.json();
+      if (Array.isArray(employees) && employees.length > 0) {
+        localStorage.setItem('tatti_emp_v5', JSON.stringify(employees));
+        return employees;
+      }
+    }
+  } catch (error) {
+    console.log('Could not fetch from API, using local data:', error);
+  }
+  return null;
+}
 
 /*
   salaryBatch:
@@ -166,6 +184,25 @@ function seedEmployees(){
 // ── LOAD DATA ──
 let EMP = JSON.parse(localStorage.getItem('tatti_emp_v5') || 'null') || seedEmployees();
 let PAY = JSON.parse(localStorage.getItem('tatti_pay_v5') || 'null') || {};
+
+// ── INITIALIZE: Fetch fresh data from backend ──
+async function initializeAppData() {
+  try {
+    const apiEmployees = await fetchEmployeesFromAPI();
+    if (apiEmployees && apiEmployees.length > 0) {
+      EMP = apiEmployees;
+      console.log(`✅ Loaded ${EMP.length} employees from backend`);
+    }
+  } catch (error) {
+    console.log('Error during initialization:', error);
+  }
+}
+// Call on page load
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', initializeAppData);
+} else {
+  initializeAppData();
+}
 
 let curTab='hr', curPage='dashboard', curEmpId=null, srchQ='', selMonth=null, empViewMon=null;
 
