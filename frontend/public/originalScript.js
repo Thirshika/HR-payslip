@@ -2004,6 +2004,44 @@ function doFinalize(){
 // ═══════════════════════════════════════════
 let _histView = 'table'; // 'card' | 'table'
 
+// ── FETCH EMAIL STATUS FROM BACKEND ──
+async function fetchEmailStatusForMonth(month) {
+  try {
+    const recs = PAY[month]?.records || [];
+    if (!recs.length) return;
+    
+    // Fetch email status for each employee/month combination
+    for (const rec of recs) {
+      try {
+        const response = await fetch(`${API_BASE_URL}/api/email-history-month/${month}`);
+        if (response.ok) {
+          const data = await response.json();
+          if (data.success && data.history) {
+            // Map email status to records by empId and month
+            const statusMap = {};
+            data.history.forEach(h => {
+              const key = `${h.empId}-${h.month}`;
+              statusMap[key] = h.status;
+            });
+            
+            // Update records with email status
+            recs.forEach(r => {
+              const key = `${r.empId}-${month}`;
+              r.emailStatus = statusMap[key] || 'Pending';
+            });
+          }
+        }
+      } catch (e) {
+        console.log('Could not fetch email status:', e);
+      }
+      // Only fetch once per month, not per record
+      break;
+    }
+  } catch (e) {
+    console.log('Error fetching email status:', e);
+  }
+}
+
 function pgHistory(m){
   const mons=mList();
   if(mons.length===0){
@@ -2013,6 +2051,10 @@ function pgHistory(m){
   const sel=selMonth||mons[0];
   const recs=PAY[sel]?.records||[];
   const locked=isLocked(sel);
+  
+  // Fetch email status from backend
+  fetchEmailStatusForMonth(sel);
+  
   const fl=srchQ
     ? recs.filter(r=>{const e=byId(r.empId);return e&&(e.name.toLowerCase().includes(srchQ)||e.branch.toLowerCase().includes(srchQ)||e.id.toLowerCase().includes(srchQ));})
     : [...recs].sort((a,b)=>a.batchType.localeCompare(b.batchType));
@@ -2729,7 +2771,10 @@ function doSendPayslipEmail(empId, month, toEmail) {
 </html>`;
   }
 
-  fetch('http://localhost:3001/api/send-payslip-email', {
+  // Use the correct backend API URL
+  const emailApiUrl = `${API_BASE_URL}/api/send-payslip-email`;
+  
+  fetch(emailApiUrl, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
@@ -2745,13 +2790,18 @@ function doSendPayslipEmail(empId, month, toEmail) {
   .then(data => {
     if (data.success) {
       toast('✅ Payslip emailed to ' + toEmail);
+      // Refresh the page to show updated email status
+      setTimeout(() => {
+        location.reload();
+      }, 1500);
     } else {
       toast('❌ Email failed: ' + (data.error || 'Unknown error'), 'err');
     }
   })
   .catch(err => {
     console.error('Email service error:', err);
-    toast('❌ Cannot reach email service — make sure it is running on port 3001', 'err');
+    console.log('Backend URL was:', emailApiUrl);
+    toast('❌ Cannot reach email service: ' + err.message, 'err');
   });
 }
 
