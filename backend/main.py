@@ -32,6 +32,53 @@ app.add_middleware(
 
 database.Base.metadata.create_all(bind=database.engine)
 
+# ── AUTO-IMPORT EMPLOYEES IF DATABASE IS EMPTY ──
+def auto_import_employees_if_empty():
+    """Import employees from exported_employees.json if database is empty"""
+    db = database.SessionLocal()
+    try:
+        # Check if employees table is empty
+        employee_count = db.query(models.Employee).count()
+        
+        if employee_count == 0:
+            logger.info("Database is empty. Attempting to import employees...")
+            
+            # Try to load from exported_employees.json
+            import_file = os.path.join(os.path.dirname(__file__), 'exported_employees.json')
+            
+            if os.path.exists(import_file):
+                with open(import_file, 'r', encoding='utf-8') as f:
+                    backup_data = json.load(f)
+                
+                employees_data = backup_data.get('EMP', [])
+                
+                for emp_data in employees_data:
+                    employee = models.Employee(
+                        id=emp_data['id'],
+                        name=emp_data.get('name'),
+                        org=emp_data.get('org'),
+                        branch=emp_data.get('branch'),
+                        designation=emp_data.get('designation'),
+                        phone=emp_data.get('phone'),
+                        email=emp_data.get('email'),
+                    )
+                    db.add(employee)
+                
+                db.commit()
+                logger.info(f"✅ Auto-imported {len(employees_data)} employees!")
+            else:
+                logger.warning(f"Could not find {import_file} for auto-import")
+        else:
+            logger.info(f"Database already has {employee_count} employees")
+    except Exception as e:
+        logger.error(f"Error during auto-import: {str(e)}")
+        db.rollback()
+    finally:
+        db.close()
+
+# Call on startup
+auto_import_employees_if_empty()
+
 class LoginRequest(BaseModel):
     username: str
     password: str
