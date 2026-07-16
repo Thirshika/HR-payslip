@@ -40,8 +40,8 @@ class EmailServiceConfig:
         self.email_from_name = os.getenv('EMAIL_FROM_NAME', 'HR Department')
         self.email_from = os.getenv('EMAIL_FROM') or self.email_user
         self.email_reply_to = os.getenv('EMAIL_REPLY_TO') or self.email_from
-      self.email_provider = os.getenv('EMAIL_PROVIDER', '').lower()
-      self.sendgrid_api_key = os.getenv('SENDGRID_API_KEY')
+        self.email_provider = os.getenv('EMAIL_PROVIDER', '').lower()
+        self.sendgrid_api_key = os.getenv('SENDGRID_API_KEY')
         
     def validate(self):
         """Validate that all required configuration is present"""
