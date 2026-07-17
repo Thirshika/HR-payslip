@@ -609,8 +609,8 @@ class EmailService:
             if self.config.email_provider == 'resend':
                 return self._send_via_resend(to_email, subject, body_text, body_html, attachments)
 
-            if not self.transporter:
-                # Attempt to initialize transporter and provide detailed failure info
+            # Default: Use SMTP
+            if self.config.email_provider in {'smtp', ''}:
                 ok = self._initialize_transporter()
                 if not ok:
                     # If SendGrid configured, use it as fallback
@@ -624,7 +624,7 @@ class EmailService:
                         err = self.last_smtp_error or 'SMTP transporter could not be initialized (unknown error)'
                         logger.error('Render environment cannot reach SMTP for %s: %s', to_email, err)
                         recommendation = 'If running on Render, enable SendGrid and set SENDGRID_API_KEY, or enable SMTP egress with your host.'
-                        return {'success': False, 'error': err, 'recommendation': recommendation}
+                        return {'success': False, 'error': err, 'recommendation': recommendation, 'email': to_email}
 
                     # For non-Render environments, if provider explicitly set to simulate/mock, allow simulated response
                     if self.config.email_provider in {'mock', 'simulate', 'disabled'}:
@@ -639,7 +639,7 @@ class EmailService:
                     # Otherwise return explicit failure
                     err = self.last_smtp_error or 'SMTP transporter could not be initialized'
                     logger.error('SMTP initialization failed for %s: %s', to_email, err)
-                    return {'success': False, 'error': err}
+                    return {'success': False, 'error': err, 'email': to_email}
 
             if self.transporter == 'simulated':
                 logger.info("Simulated email delivery for %s", to_email)
