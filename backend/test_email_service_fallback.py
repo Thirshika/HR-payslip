@@ -3,6 +3,7 @@ import sys
 import json
 import unittest
 from unittest.mock import patch
+from dotenv import load_dotenv
 
 sys.path.insert(0, os.path.dirname(__file__))
 
@@ -10,6 +11,12 @@ from email_service import EmailService, EmailServiceConfig
 
 
 class EmailServiceFallbackTests(unittest.TestCase):
+    def test_backend_environment_uses_resend_provider(self):
+        dotenv_path = os.path.join(os.path.dirname(__file__), '.env')
+        load_dotenv(dotenv_path)
+
+        self.assertEqual(os.getenv('EMAIL_PROVIDER', '').lower(), 'resend')
+
     def test_mock_provider_does_not_require_smtp_credentials(self):
         os.environ["EMAIL_PROVIDER"] = "mock"
         os.environ.pop("EMAIL_USER", None)
