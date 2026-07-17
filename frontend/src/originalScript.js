@@ -2081,7 +2081,7 @@ function renderHistTable(fl, sel){
               <button class="btn btn-o btn-xs" onclick="event.stopPropagation();openSlip('${r.empId}','${sel}')">👁 View</button>
             </td>
             <td style="text-align:center;">
-              <span class="badge ${r.emailStatus==='Sent'?'b-grn':r.emailStatus==='Failed'?'b-red':'b-gray'}" style="font-size:9px;">${r.emailStatus||'Pending'}</span>
+              <span class="badge ${r.emailStatus==='Sent'?'b-grn':r.emailStatus==='Failed'?'b-red':'b-gold'}" style="font-size:9px;">${r.emailStatus||'Pending'}</span>
             </td>
           </tr>`;
         }).join('')}
@@ -2704,12 +2704,14 @@ function doSendPayslipEmail(empId, month, toEmail) {
       htmlContent: htmlContent
     })
   })
-  .then(res => res.json())
-  .then(data => {
-    if (data.success) {
+  .then(res => {
+    return res.json().then(data => ({ status: res.status, ok: res.ok, data }));
+  })
+  .then(({ status, ok, data }) => {
+    if (ok && data.success) {
       toast('✅ Payslip emailed to ' + toEmail);
     } else {
-      toast('❌ Email failed: ' + (data.error || 'Unknown error'), 'err');
+      toast('❌ Email failed: ' + (data.error || data.message || `HTTP ${status}`), 'err');
     }
   })
   .catch(err => {

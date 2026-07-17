@@ -109,16 +109,18 @@ function PayslipView() {
       if (response.ok && data.success) {
         setMessage(data.message || 'Email sent successfully');
         setMessageType('success');
-        console.log('[Email Send] Email sent successfully');
+        console.log('[Email Send] Email sent successfully:', data.message);
       } else {
         const rawError = data.error || data.message || 'Failed to send payslip';
         const formattedError = formatErrorMessage(rawError);
         setMessage(formattedError);
         setMessageType('error');
         console.log('[Email Send] Email send failed:', formattedError);
+        console.log('[Email Send] Full response:', data);
       }
 
-      setTimeout(() => fetchEmailHistory(), 1000);
+      // Fetch history after a small delay to ensure DB is updated
+      setTimeout(() => fetchEmailHistory(), 500);
     } catch (error) {
       const errorMsg = `Error sending payslip: ${error.message}`;
       setMessage(errorMsg);
