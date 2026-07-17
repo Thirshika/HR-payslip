@@ -1967,7 +1967,49 @@ function doFinalize(){
 // ═══════════════════════════════════════════
 let _histView = 'table'; // 'card' | 'table'
 
-function pgHistory(m){
+async function fetchEmailStatusForMonth(month) {
+  const localApiUrl = LOCAL_HOSTNAMES.includes(window.location.hostname)
+    ? 'http://127.0.0.1:8000'
+    : 'http://localhost:3001';
+  
+  try {
+    const response = await fetch(`${localApiUrl}/api/payroll-email-status/${encodeURIComponent(month)}`, {
+      method: 'GET',
+      headers: { 'Content-Type': 'application/json' },
+    });
+    
+    const data = await response.json();
+    
+    if (data.success && data.records) {
+      // Update local PAY records with email status from backend
+      data.records.forEach(record => {
+        const targetEmpKey = String(record.empId || '').trim().toUpperCase();
+        const targetMonth = String(month || '').trim().toLowerCase();
+        
+        for (const mon in PAY) {
+          const records = PAY[mon]?.records || [];
+          records.forEach(rec => {
+            const recEmpKey = String(rec.empId || '').trim().toUpperCase();
+            const recMonthKey = String(rec.month || mon).trim().toLowerCase();
+            if (recEmpKey === targetEmpKey && recMonthKey === targetMonth) {
+              // Only update if backend has a non-Pending status (to preserve immediate local updates)
+              if (record.email_status && record.email_status !== 'Pending') {
+                rec.emailStatus = record.email_status;
+              }
+              rec.email_sent_at = record.email_sent_at;
+              rec.email_error = record.email_error;
+            }
+          });
+        }
+      });
+      console.log(`[EMAIL STATUS] Fetched and updated email status for ${data.records.length} records in ${month}`);
+    }
+  } catch (error) {
+    console.error('[EMAIL STATUS] Error fetching email status:', error);
+  }
+}
+
+function pgHistory(m, skipBackendFetch = false){
   const mons=mList();
   if(mons.length===0){
     m.innerHTML=`<div class="page-hd"><div><h1>Payroll History</h1></div></div>
@@ -1976,6 +2018,14 @@ function pgHistory(m){
   const sel=selMonth||mons[0];
   const recs=PAY[sel]?.records||[];
   const locked=isLocked(sel);
+
+  // Initialize email status to 'Pending' if not set
+  recs.forEach(r => {
+    if (!r.emailStatus) {
+      r.emailStatus = 'Pending';
+    }
+  });
+
   const fl=srchQ
     ? recs.filter(r=>{const e=byId(r.empId);return e&&(e.name.toLowerCase().includes(srchQ)||e.branch.toLowerCase().includes(srchQ)||e.id.toLowerCase().includes(srchQ));})
     : [...recs].sort((a,b)=>a.batchType.localeCompare(b.batchType));
@@ -2654,7 +2704,16 @@ function sendPayslipEmail(empId, month) {
 
 function doSendPayslipEmail(empId, month, toEmail) {
   const e = byId(empId);
-  const r = getRec(month, empId);
+  let r = getRec(month, empId);
+  if (!r) {
+    for (const recMonth in PAY) {
+      const rec = PAY[recMonth]?.records?.find(x =>
+        String(x.empId || '').trim().toUpperCase() === String(empId || '').trim().toUpperCase() &&
+        String(x.month || recMonth).trim() === String(month).trim()
+      );
+      if (rec) { r = rec; break; }
+    }
+  }
   if (!e) { toast('Employee not found', 'err'); return; }
   if (!toEmail || !toEmail.includes('@')) { toast('Please enter a valid email address', 'err'); return; }
 
@@ -2692,9 +2751,65 @@ function doSendPayslipEmail(empId, month, toEmail) {
 </html>`;
   }
 
-  fetch('http://localhost:3001/api/send-payslip-email', {
+  const localSendUrl = LOCAL_HOSTNAMES.includes(window.location.hostname)
+    ? 'http://127.0.0.1:8000/api/send-payslip-email'
+    : 'http://localhost:3001/api/send-payslip-email';
+
+  const updateEmailStatus = (status) => {
+    console.log('[EMAIL STATUS UPDATE] Starting update with status:', status, 'for empId:', empId, 'month:', month);
+    
+    if (!r) {
+      console.log('[EMAIL STATUS UPDATE] No record found, aborting');
+      return;
+    }
+
+    const targetEmpKey = String(empId || '').trim().toUpperCase();
+    const targetMonth = String(month || '').trim().toLowerCase();
+    
+    console.log('[EMAIL STATUS UPDATE] Target empKey:', targetEmpKey, 'targetMonth:', targetMonth);
+
+    let updated = false;
+    for (const mon in PAY) {
+      const records = PAY[mon]?.records || [];
+      records.forEach(rec => {
+        const recEmpKey = String(rec.empId || '').trim().toUpperCase();
+        const recMonthKey = String(rec.month || mon).trim().toLowerCase();
+        console.log('[EMAIL STATUS UPDATE] Checking record:', recEmpKey, recMonthKey, 'against target:', targetEmpKey, targetMonth);
+        
+        if (recEmpKey === targetEmpKey && recMonthKey === targetMonth) {
+          console.log('[EMAIL STATUS UPDATE] MATCH! Updating record from', rec.emailStatus, 'to', status);
+          rec.emailStatus = status;
+          updated = true;
+        }
+      });
+    }
+
+    if (!updated) {
+      console.log('[EMAIL STATUS UPDATE] WARNING: No matching record found for update');
+    }
+
+    save();
+    console.log('[EMAIL STATUS UPDATE] Data saved');
+    
+    // Re-render the page immediately with updated data
+    const hrMain = document.getElementById('hrMain');
+    if (hrMain && typeof pgHistory === 'function') {
+      console.log('[EMAIL STATUS UPDATE] Calling pgHistory with skipBackendFetch=true');
+      pgHistory(hrMain, true);
+    } else {
+      console.log('[EMAIL STATUS UPDATE] ERROR: hrMain or pgHistory not available');
+    }
+  };
+
+  fetch(localSendUrl, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    mode: 'cors',
+    credentials: 'same-origin',
+    cache: 'no-store',
+    headers: {
+      'Accept': 'application/json',
+      'Content-Type': 'application/json'
+    },
     body: JSON.stringify({
       empId: empId,
       month: month,
@@ -2710,12 +2825,15 @@ function doSendPayslipEmail(empId, month, toEmail) {
   .then(({ status, ok, data }) => {
     if (ok && data.success) {
       toast('✅ Payslip emailed to ' + toEmail);
+      updateEmailStatus('Sent');
     } else {
+      updateEmailStatus('Failed');
       toast('❌ Email failed: ' + (data.error || data.message || `HTTP ${status}`), 'err');
     }
   })
   .catch(err => {
     console.error('Email service error:', err);
+    updateEmailStatus('Failed');
     toast('❌ Cannot reach email service — make sure it is running on port 3001', 'err');
   });
 }

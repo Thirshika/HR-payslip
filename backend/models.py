@@ -27,6 +27,9 @@ class PayrollRecord(Base):
     netPayable = Column(Float, default=0)
     paidAmount = Column(Float, default=0)
     balanceAmount = Column(Float, default=0)
+    email_status = Column(String(50), nullable=True, default='Pending')
+    email_sent_at = Column(DateTime, nullable=True)
+    email_error = Column(Text, nullable=True)
 
 class EmailHistory(Base):
     __tablename__ = 'email_history'

@@ -4,7 +4,10 @@
 let HR_PASS = localStorage.getItem('tatti_hrpass_v1') || 'HR@Admin2024';
 const COLORS = ['#d4a017','#3a7bd5','#2eaa6e','#c0612f','#7b52c0','#c0297a','#1a8a8a','#8a6a1a','#5a3ac0','#3a9a3a'];
 const MONTHS_LIST = ['January','February','March','April','May','June','July','August','September','October','November','December'];
-const API_BASE_URL = localStorage.getItem('tatti_api_url') || 'https://hr-payslip-mh66.onrender.com';
+const LOCAL_HOSTNAMES = ['localhost', '127.0.0.1', '0.0.0.0'];
+const API_BASE_URL = LOCAL_HOSTNAMES.includes(window.location.hostname)
+  ? 'http://127.0.0.1:8000'
+  : localStorage.getItem('tatti_api_url') || 'https://hr-payslip-mh66.onrender.com';
 
 // ── FETCH EMPLOYEES FROM BACKEND API ──
 async function fetchEmployeesFromAPI() {
@@ -2005,44 +2008,57 @@ function doFinalize(){
 let _histView = 'table'; // 'card' | 'table'
 
 // ── FETCH EMAIL STATUS FROM BACKEND ──
+const normalizeEmailStatus = (status) => {
+  if (!status && status !== 0) return '';
+  const s = String(status).trim().toLowerCase();
+  if (!s) return '';
+  if (s === 'sent') return 'Sent';
+  if (s === 'failed') return 'Failed';
+  return s.charAt(0).toUpperCase() + s.slice(1);
+};
+
 async function fetchEmailStatusForMonth(month) {
   try {
     const recs = PAY[month]?.records || [];
     if (!recs.length) return;
-    
-    // Fetch email status for each employee/month combination
-    for (const rec of recs) {
-      try {
-        const response = await fetch(`${API_BASE_URL}/api/email-history-month/${month}`);
-        if (response.ok) {
-          const data = await response.json();
-          if (data.success && data.history) {
-            // Map email status to records by empId and month
-            const statusMap = {};
-            data.history.forEach(h => {
-              const key = `${h.empId}-${h.month}`;
-              statusMap[key] = h.status;
-            });
-            
-            // Update records with email status
-            recs.forEach(r => {
-              const key = `${r.empId}-${month}`;
-              r.emailStatus = statusMap[key] || 'Pending';
-            });
-          }
+
+    const response = await fetch(`${API_BASE_URL}/api/email-history-month/${encodeURIComponent(month)}`);
+    if (!response.ok) {
+      console.log('Could not fetch email status for month:', month, 'status:', response.status);
+      return;
+    }
+
+    const data = await response.json();
+    if (data.success && data.history) {
+      const statusMap = new Map();
+      data.history.forEach(h => {
+        const empKey = String(h.empId || '').trim().toUpperCase();
+        const monthKey = String(h.month || '').trim();
+        const status = normalizeEmailStatus(h.status);
+        if (empKey && monthKey && status) {
+          statusMap.set(`${empKey}|${monthKey}`, status);
         }
-      } catch (e) {
-        console.log('Could not fetch email status:', e);
-      }
-      // Only fetch once per month, not per record
-      break;
+      });
+
+      recs.forEach(r => {
+        const empKey = String(r.empId || '').trim().toUpperCase();
+        const monthKey = String(r.month || month).trim();
+        const key = `${empKey}|${monthKey}`;
+        const status = statusMap.get(key);
+        // Only update if backend has a non-Pending status (to preserve immediate local updates)
+        if (status && status !== 'Pending') {
+          r.emailStatus = status;
+        }
+      });
+
+      save();
     }
   } catch (e) {
     console.log('Error fetching email status:', e);
   }
 }
 
-function pgHistory(m){
+function pgHistory(m, skipBackendFetch = false){
   const mons=mList();
   if(mons.length===0){
     m.innerHTML=`<div class="page-hd"><div><h1>Payroll History</h1></div></div>
@@ -2051,10 +2067,19 @@ function pgHistory(m){
   const sel=selMonth||mons[0];
   const recs=PAY[sel]?.records||[];
   const locked=isLocked(sel);
-  
-  // Fetch email status from backend
-  fetchEmailStatusForMonth(sel);
-  
+
+  // Initialize email status to 'Pending' if not set
+  recs.forEach(r => {
+    if (!r.emailStatus) {
+      r.emailStatus = 'Pending';
+    }
+  });
+
+  // Fetch email status from backend before rendering (unless skipped)
+  if (!skipBackendFetch) {
+    fetchEmailStatusForMonth(sel);
+  }
+
   const fl=srchQ
     ? recs.filter(r=>{const e=byId(r.empId);return e&&(e.name.toLowerCase().includes(srchQ)||e.branch.toLowerCase().includes(srchQ)||e.id.toLowerCase().includes(srchQ));})
     : [...recs].sort((a,b)=>a.batchType.localeCompare(b.batchType));
@@ -2733,7 +2758,16 @@ function sendPayslipEmail(empId, month) {
 
 function doSendPayslipEmail(empId, month, toEmail) {
   const e = byId(empId);
-  const r = getRec(month, empId);
+  let r = getRec(month, empId);
+  if (!r) {
+    for (const recMonth in PAY) {
+      const rec = PAY[recMonth]?.records?.find(x =>
+        String(x.empId || '').trim().toUpperCase() === String(empId || '').trim().toUpperCase() &&
+        String(x.month || recMonth).trim() === String(month).trim()
+      );
+      if (rec) { r = rec; break; }
+    }
+  }
   if (!e) { toast('Employee not found', 'err'); return; }
   if (!toEmail || !toEmail.includes('@')) { toast('Please enter a valid email address', 'err'); return; }
 
@@ -2771,12 +2805,68 @@ function doSendPayslipEmail(empId, month, toEmail) {
 </html>`;
   }
 
-  // Use the correct backend API URL
-  const emailApiUrl = `${API_BASE_URL}/api/send-payslip-email`;
-  
+  console.log('doSendPayslipEmail host:', window.location.hostname, 'API_BASE_URL:', API_BASE_URL);
+  // Force local backend URL during local development
+  const emailApiUrl = LOCAL_HOSTNAMES.includes(window.location.hostname)
+    ? 'http://127.0.0.1:8000/api/send-payslip-email'
+    : `${API_BASE_URL}/api/send-payslip-email`;
+  console.log('Email send URL:', emailApiUrl);
+
+  const updateEmailStatus = (status) => {
+    console.log('[EMAIL STATUS UPDATE] Starting update with status:', status, 'for empId:', empId, 'month:', month);
+    
+    if (!r) {
+      console.log('[EMAIL STATUS UPDATE] No record found, aborting');
+      return;
+    }
+
+    const targetEmpKey = String(empId || '').trim().toUpperCase();
+    const targetMonth = String(month || '').trim().toLowerCase();
+    
+    console.log('[EMAIL STATUS UPDATE] Target empKey:', targetEmpKey, 'targetMonth:', targetMonth);
+
+    let updated = false;
+    for (const mon in PAY) {
+      const records = PAY[mon]?.records || [];
+      records.forEach(rec => {
+        const recEmpKey = String(rec.empId || '').trim().toUpperCase();
+        const recMonthKey = String(rec.month || mon).trim().toLowerCase();
+        console.log('[EMAIL STATUS UPDATE] Checking record:', recEmpKey, recMonthKey, 'against target:', targetEmpKey, targetMonth);
+        
+        if (recEmpKey === targetEmpKey && recMonthKey === targetMonth) {
+          console.log('[EMAIL STATUS UPDATE] MATCH! Updating record from', rec.emailStatus, 'to', status);
+          rec.emailStatus = status;
+          updated = true;
+        }
+      });
+    }
+
+    if (!updated) {
+      console.log('[EMAIL STATUS UPDATE] WARNING: No matching record found for update');
+    }
+
+    save();
+    console.log('[EMAIL STATUS UPDATE] Data saved');
+    
+    // Re-render the page immediately with updated data
+    const hrMain = document.getElementById('hrMain');
+    if (hrMain && typeof pgHistory === 'function') {
+      console.log('[EMAIL STATUS UPDATE] Calling pgHistory with skipBackendFetch=true');
+      pgHistory(hrMain, true);
+    } else {
+      console.log('[EMAIL STATUS UPDATE] ERROR: hrMain or pgHistory not available');
+    }
+  };
+
   fetch(emailApiUrl, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    mode: 'cors',
+    credentials: 'same-origin',
+    cache: 'no-store',
+    headers: {
+      'Accept': 'application/json',
+      'Content-Type': 'application/json'
+    },
     body: JSON.stringify({
       empId: empId,
       month: month,
@@ -2786,22 +2876,31 @@ function doSendPayslipEmail(empId, month, toEmail) {
       htmlContent: htmlContent
     })
   })
-  .then(res => res.json())
-  .then(data => {
-    if (data.success) {
-      toast('✅ Payslip emailed to ' + toEmail);
-      // Refresh the page to show updated email status
-      setTimeout(() => {
-        location.reload();
-      }, 1500);
-    } else {
-      toast('❌ Email failed: ' + (data.error || 'Unknown error'), 'err');
+  .then(async res => {
+    let data;
+    try {
+      data = await res.json();
+    } catch (parseErr) {
+      console.error('Could not parse email API response as JSON:', parseErr);
+      data = null;
     }
+
+    if (res.ok && data && data.success) {
+      toast('✅ Email sent successfully to ' + toEmail, 'success');
+      updateEmailStatus('Sent');
+      return;
+    }
+
+    const errorMessage = formatSendError(data, res);
+    console.error('Email send failed:', { status: res.status, data, errorMessage });
+    updateEmailStatus('Failed');
+    toast('❌ Email failed: ' + errorMessage, 'err');
   })
   .catch(err => {
     console.error('Email service error:', err);
     console.log('Backend URL was:', emailApiUrl);
-    toast('❌ Cannot reach email service: ' + err.message, 'err');
+    updateEmailStatus('Failed');
+    toast('❌ Cannot reach email service: ' + (err.message || err), 'err');
   });
 }
 

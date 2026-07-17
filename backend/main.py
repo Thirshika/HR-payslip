@@ -137,6 +137,38 @@ def list_employees(db: Session = Depends(get_db)):
 def list_payroll(month: str, db: Session = Depends(get_db)):
     return db.query(models.PayrollRecord).filter(models.PayrollRecord.month == month).all()
 
+@app.get("/api/payroll-email-status/{month}")
+async def get_payroll_email_status(month: str, db: Session = Depends(get_db)) -> dict:
+    """Get email status for all payroll records in a given month"""
+    try:
+        logger.info(f"[EMAIL STATUS] Fetching email status for month: {month}")
+        try:
+            from backend.models import PayrollRecord
+        except Exception:
+            from models import PayrollRecord
+        
+        records = db.query(PayrollRecord).filter(
+            PayrollRecord.month == month
+        ).all()
+        
+        return {
+            "success": True,
+            "month": month,
+            "records": [
+                {
+                    "empId": r.empId,
+                    "email_status": r.email_status,
+                    "email_sent_at": r.email_sent_at.isoformat() if r.email_sent_at else None,
+                    "email_error": r.email_error
+                }
+                for r in records
+            ]
+        }
+    except Exception as e:
+        error_msg = f"Failed to fetch email status: {str(e)}"
+        logger.error(f"❌ {error_msg}")
+        return {"success": False, "error": error_msg, "records": []}
+
 @app.post("/api/login")
 def login(payload: LoginRequest):
     # Example login route. Replace with secure auth later.
@@ -335,6 +367,36 @@ async def send_payslip_email(payload: dict, db: Session = Depends(get_db)) -> di
             logger.info(f"[EMAIL HISTORY] Recorded email send attempt for {emp_id}")
         except Exception as db_error:
             logger.warning(f"[EMAIL HISTORY] Could not record email history: {str(db_error)}")
+            db.rollback()
+
+        # Update PayrollRecord email status
+        try:
+            try:
+                from backend.models import PayrollRecord
+            except Exception:
+                from models import PayrollRecord
+            
+            payroll_record = db.query(PayrollRecord).filter(
+                PayrollRecord.empId == emp_id,
+                PayrollRecord.month == month
+            ).first()
+            
+            if payroll_record:
+                if result.get('success'):
+                    payroll_record.email_status = 'Sent'
+                    payroll_record.email_sent_at = datetime.now()
+                    payroll_record.email_error = None
+                    logger.info(f"[PAYROLL RECORD] Updated email status to 'Sent' for {emp_id}, month {month}")
+                else:
+                    payroll_record.email_status = 'Failed'
+                    payroll_record.email_error = result.get('error') or result.get('details') or 'Unknown error'
+                    logger.info(f"[PAYROLL RECORD] Updated email status to 'Failed' for {emp_id}, month {month}")
+                
+                db.commit()
+            else:
+                logger.warning(f"[PAYROLL RECORD] No payroll record found for {emp_id}, month {month}")
+        except Exception as db_error:
+            logger.warning(f"[PAYROLL RECORD] Could not update payroll record: {str(db_error)}")
             db.rollback()
 
         # Format the error message for better display
