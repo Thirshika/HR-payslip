@@ -47,6 +47,23 @@ function PayslipView() {
     }
   };
 
+  const formatErrorMessage = (error) => {
+    if (!error) return 'Failed to send payslip';
+    
+    // If error is a JSON string, try to parse it
+    if (typeof error === 'string' && error.startsWith('{')) {
+      try {
+        const parsed = JSON.parse(error);
+        return parsed.message || JSON.stringify(parsed);
+      } catch (e) {
+        // Not valid JSON, return as is
+        return error;
+      }
+    }
+    
+    return error;
+  };
+
   const handleEmailPayslip = async () => {
     console.log('[Email Send] Button clicked');
     setIsLoading(true);
@@ -94,10 +111,11 @@ function PayslipView() {
         setMessageType('success');
         console.log('[Email Send] Email sent successfully');
       } else {
-        const errorMessage = data.error || data.message || 'Failed to send payslip';
-        setMessage(errorMessage);
+        const rawError = data.error || data.message || 'Failed to send payslip';
+        const formattedError = formatErrorMessage(rawError);
+        setMessage(formattedError);
         setMessageType('error');
-        console.log('[Email Send] Email send failed:', errorMessage);
+        console.log('[Email Send] Email send failed:', formattedError);
       }
 
       setTimeout(() => fetchEmailHistory(), 1000);
@@ -149,12 +167,19 @@ function PayslipView() {
         footer={
           <div style={{ display: 'flex', gap: '10px', alignItems: 'center', justifyContent: 'space-between' }}>
             {message && (
-              <span style={{
-                color: messageType === 'success' ? 'green' : 'red',
-                fontSize: '14px'
+              <div style={{
+                padding: '10px 15px',
+                borderRadius: '4px',
+                fontSize: '14px',
+                fontWeight: '500',
+                backgroundColor: messageType === 'success' ? '#d4edda' : '#f8d7da',
+                color: messageType === 'success' ? '#155724' : '#721c24',
+                border: `1px solid ${messageType === 'success' ? '#c3e6cb' : '#f5c6cb'}`,
+                maxWidth: '400px',
+                wordBreak: 'break-word'
               }}>
-                {message}
-              </span>
+                {messageType === 'success' ? '✓ ' : '✕ '}{message}
+              </div>
             )}
             <div style={{ display: 'flex', gap: '10px', marginLeft: 'auto' }}>
               <button

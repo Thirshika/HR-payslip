@@ -239,6 +239,22 @@ logger.info("📧 Email Service integrated into FastAPI backend")
 @app.post("/api/send-payslip-email")
 async def send_payslip_email(payload: dict, db: Session = Depends(get_db)) -> dict:
     """Send payslip email with PDF attachment"""
+    
+    def format_error_message(error_raw):
+        """Format error message, handling JSON strings from providers."""
+        if not error_raw:
+            return "Email sending failed"
+        
+        if isinstance(error_raw, str):
+            if error_raw.startswith('{'):
+                try:
+                    error_json = json.loads(error_raw)
+                    return error_json.get('message', error_raw)
+                except json.JSONDecodeError:
+                    pass
+        
+        return str(error_raw)
+    
     try:
         emp_id = payload.get('empId')
         month = payload.get('month')
@@ -321,11 +337,14 @@ async def send_payslip_email(payload: dict, db: Session = Depends(get_db)) -> di
             logger.warning(f"[EMAIL HISTORY] Could not record email history: {str(db_error)}")
             db.rollback()
 
+        # Format the error message for better display
+        formatted_error = None if result.get('success') else format_error_message(result.get('error') or result.get('details'))
+        
         response_body = {
             'success': bool(result.get('success')),
             'status': 'sent' if result.get('success') else 'failed',
             'message': result.get('message') or ('Email sent successfully' if result.get('success') else 'Email sending failed'),
-            'error': None if result.get('success') else (result.get('error') or result.get('details') or 'Unknown email error'),
+            'error': formatted_error,
             'provider': result.get('provider'),
             'email': to_email,
         }
