@@ -558,11 +558,20 @@ class EmailService:
                     'message': 'Email sent successfully via Resend',
                     'messageId': message_id
                 }
-            logger.error("Resend request failed with status %s: %s", resp.status_code, resp.text)
+            try:
+                response_data = resp.json()
+                if isinstance(response_data, dict):
+                    error_message = response_data.get('message') or response_data.get('error') or resp.text
+                else:
+                    error_message = resp.text or f'Resend error {resp.status_code}'
+            except (ValueError, TypeError):
+                error_message = resp.text or f'Resend error {resp.status_code}'
+
+            logger.error("Resend request failed with status %s: %s", resp.status_code, error_message)
             return {
                 'success': False,
                 'provider': 'resend',
-                'error': resp.text or f'Resend error {resp.status_code}',
+                'error': error_message,
                 'status_code': resp.status_code,
                 'email': to_email,
             }

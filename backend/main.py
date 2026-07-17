@@ -339,7 +339,8 @@ async def send_payslip_email(payload: dict, db: Session = Depends(get_db)) -> di
 
         # Format the error message for better display
         formatted_error = None if result.get('success') else format_error_message(result.get('error') or result.get('details'))
-        
+
+        status_code = 200 if result.get('success') else 502
         response_body = {
             'success': bool(result.get('success')),
             'status': 'sent' if result.get('success') else 'failed',
@@ -349,8 +350,8 @@ async def send_payslip_email(payload: dict, db: Session = Depends(get_db)) -> di
             'email': to_email,
         }
         if result.get('success'):
-            return JSONResponse(status_code=200, content=response_body)
-        return JSONResponse(status_code=400, content=response_body)
+            return JSONResponse(status_code=status_code, content=response_body)
+        return JSONResponse(status_code=status_code, content=response_body)
     
     except Exception as e:
         error_msg = f"Error sending payslip email: {str(e)}"

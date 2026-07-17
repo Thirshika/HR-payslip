@@ -17,6 +17,35 @@ class EmailServiceFallbackTests(unittest.TestCase):
 
         self.assertEqual(os.getenv('EMAIL_PROVIDER', '').lower(), 'resend')
 
+    @patch('email_service.requests.post')
+    def test_resend_authentication_error_is_reported_cleanly(self, mock_post):
+        os.environ["EMAIL_PROVIDER"] = "resend"
+        os.environ["RESEND_API_KEY"] = "invalid-key"
+        os.environ["EMAIL_FROM"] = "HR Department <pr.tatti2026@gmail.com>"
+        os.environ["EMAIL_FROM_NAME"] = "HR Department"
+
+        mock_response = unittest.mock.Mock()
+        mock_response.status_code = 401
+        mock_response.text = '{"statusCode":401,"name":"validation_error","message":"API key is invalid"}'
+        mock_response.json.return_value = {
+            'statusCode': 401,
+            'name': 'validation_error',
+            'message': 'API key is invalid',
+        }
+        mock_post.return_value = mock_response
+
+        service = EmailService()
+        result = service.send_email(
+            "employee@example.com",
+            "Payslip Test",
+            "Please find attached",
+            "<p>Please find attached</p>",
+        )
+
+        self.assertFalse(result["success"])
+        self.assertEqual(result["provider"], "resend")
+        self.assertIn("API key is invalid", result["error"])
+
     def test_mock_provider_does_not_require_smtp_credentials(self):
         os.environ["EMAIL_PROVIDER"] = "mock"
         os.environ.pop("EMAIL_USER", None)
