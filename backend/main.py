@@ -376,10 +376,12 @@ async def send_payslip_email(payload: dict, db: Session = Depends(get_db)) -> di
             except Exception:
                 from models import PayrollRecord
             
+            logger.info(f"[PAYROLL RECORD] Querying database for payroll record - empId: {emp_id}, month: {month}")
             payroll_record = db.query(PayrollRecord).filter(
                 PayrollRecord.empId == emp_id,
                 PayrollRecord.month == month
             ).first()
+            logger.info(f"[PAYROLL RECORD] Query result - found: {payroll_record is not None}, record_id: {payroll_record.id if payroll_record else None}")
             
             if payroll_record:
                 if result.get('success'):

@@ -1,0 +1,33 @@
+═════════════════
+let _histView = 'table'; // 'card' | 'table'
+
+// ── FETCH EMAIL STATUS FROM BACKEND ──
+async function fetchEmailStatusForMonth(month) {
+  try {
+    const recs = PAY[month]?.records || [];
+    if (!recs.length) return;
+
+    const response = await fetch(`${API_BASE_URL}/api/email-history-month/${encodeURIComponent(month)}`);
+    if (!response.ok) {
+      console.log('Could not fetch email status for month:', month, 'status:', response.status);
+      return;
+    }
+
+
+---
+       }
+      });
+    }
+  } catch (e) {
+    console.log('Error fetching email status:', e);
+  }
+}
+
+async function pgHistory(m){
+  const mons=mList();
+  if(mons.length===0){
+    m.innerHTML=`<div class="page-hd"><div><h1>Payroll History</h1></div></div>
+    <div class="empty"><div class="ei">🗂️</div><h3>No payrolls yet</h3><button class="btn btn-p" style="margin-top:1rem" onclick="gotoPage('generate')">⚡ Generate</button></div>`; return;
+  }
+  const sel=selMonth||mons[0];
+  const 

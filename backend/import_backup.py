@@ -62,30 +62,41 @@ def import_backup(backup_file_path):
         print(f"✅ All employees imported successfully!")
         
         # Import payroll records if available
-        payroll_data = backup_data.get('PAYROLL', [])
+        payroll_data = backup_data.get('PAY', {})
         if payroll_data:
-            print(f"\n💰 Importing {len(payroll_data)} payroll records...")
+            print(f"\n💰 Importing payroll records...")
+            total_imported = 0
             
-            for pr in payroll_data:
-                existing = db.query(models.PayrollRecord).filter(
-                    models.PayrollRecord.emp_id == pr.get('empId'),
-                    models.PayrollRecord.month == pr.get('month')
-                ).first()
+            # PAY structure: { "May 2026": { "records": [...] } }
+            for month, month_data in payroll_data.items():
+                records = month_data.get('records', [])
+                print(f"  📅 Processing month: {month} ({len(records)} records)")
                 
-                if existing:
-                    print(f"⏭️  Skipping {pr.get('empId')} - {pr.get('month')} - already exists")
-                    continue
-                
-                payroll = models.PayrollRecord(
-                    emp_id=pr.get('empId'),
-                    month=pr.get('month'),
-                    data=pr
-                )
-                db.add(payroll)
-                print(f"✅ Added payroll: {pr.get('empId')} - {pr.get('month')}")
+                for pr in records:
+                    existing = db.query(models.PayrollRecord).filter(
+                        models.PayrollRecord.empId == pr.get('empId'),
+                        models.PayrollRecord.month == pr.get('month')
+                    ).first()
+                    
+                    if existing:
+                        print(f"  ⏭️  Skipping {pr.get('empId')} - {pr.get('month')} - already exists")
+                        continue
+                    
+                    payroll = models.PayrollRecord(
+                        empId=pr.get('empId'),
+                        month=pr.get('month'),
+                        gross=pr.get('gross', 0),
+                        netPayable=pr.get('netPayable', 0),
+                        paidAmount=pr.get('paidAmount', 0),
+                        balanceAmount=pr.get('balanceAmount', 0),
+                        email_status='Pending'
+                    )
+                    db.add(payroll)
+                    total_imported += 1
+                    print(f"  ✅ Added payroll: {pr.get('empId')} - {pr.get('month')}")
             
             db.commit()
-            print(f"✅ All payroll records imported!")
+            print(f"✅ All payroll records imported! Total: {total_imported}")
         
         print("\n" + "="*50)
         print("✅ BACKUP IMPORT COMPLETED SUCCESSFULLY!")
