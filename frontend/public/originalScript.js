@@ -14,7 +14,7 @@ const LOCAL_HOSTNAMES = ['localhost', '127.0.0.1', '0.0.0.0'];
 
 const API_BASE_URL = LOCAL_HOSTNAMES.includes(window.location.hostname)
 
-  ? 'http://127.0.0.1:8000'
+  ? 'http://127.0.0.1:8001'
 
   : localStorage.getItem('tatti_api_url') || 'https://hr-payslip-mh66.onrender.com';
 
@@ -4013,105 +4013,117 @@ function doFinalize(){
 // ═══════════════════════════════════════════
 
 let _histView = 'table'; // 'card' | 'table'
+let emailStatusCache = {}; // Cache for email status: { "empId_month": { status, sentAt, errorMessage } }
 
-
-
-// ── FETCH EMAIL STATUS FROM BACKEND ──
-
-const normalizeEmailStatus = (status) => {
-
-  if (!status && status !== 0) return '';
-
-  const s = String(status).trim().toLowerCase();
-
-  if (!s) return '';
-
-  if (s === 'sent') return 'Sent';
-
-  if (s === 'failed') return 'Failed';
-
-  return s.charAt(0).toUpperCase() + s.slice(1);
-
-};
-
-
-
-async function fetchEmailStatusForMonth(month) {
-
+async function loadEmailStatusForMonth(month, empIds, forceRefresh = false) {
+  const localApiUrl = LOCAL_HOSTNAMES.includes(window.location.hostname)
+    ? 'http://127.0.0.1:8001'
+    : 'http://localhost:3001';
+  
+  console.log('[EMAIL STATUS] Loading email status for month:', month, 'employees:', empIds.length, 'forceRefresh:', forceRefresh);
+  
   try {
-
-    const recs = PAY[month]?.records || [];
-
-    if (!recs.length) return;
-
-
-
-    const response = await fetch(`${API_BASE_URL}/api/email-history-month/${encodeURIComponent(month)}`);
-
-    if (!response.ok) {
-
-      console.log('Could not fetch email status for month:', month, 'status:', response.status);
-
-      return;
-
-    }
-
-
-
+    // Load email history for the entire month
+    const response = await fetch(`${localApiUrl}/api/email-history-month/${encodeURIComponent(month)}`, {
+      method: 'GET',
+      headers: { 'Content-Type': 'application/json' },
+    });
+    
     const data = await response.json();
-
+    console.log('[EMAIL STATUS] Backend response:', data);
+    
     if (data.success && data.history) {
-
-      const statusMap = new Map();
-
-      data.history.forEach(h => {
-
-        const empKey = String(h.empId || '').trim().toUpperCase();
-
-        const monthKey = String(h.month || '').trim();
-
-        const status = normalizeEmailStatus(h.status);
-
-        if (empKey && monthKey && status) {
-
-          statusMap.set(`${empKey}|${monthKey}`, status);
-
+      // Cache the email status by empId_month, keeping only the latest record per employee
+      const latestStatusByEmployee = {};
+      data.history.forEach(record => {
+        const key = `${record.empId}_${record.month}`;
+        const existing = latestStatusByEmployee[key];
+        // Keep the record with the latest sentAt timestamp
+        if (!existing || (record.sentAt && (!existing.sentAt || new Date(record.sentAt) > new Date(existing.sentAt)))) {
+          latestStatusByEmployee[key] = record;
         }
-
       });
-
-
-
-      recs.forEach(r => {
-
-        const empKey = String(r.empId || '').trim().toUpperCase();
-
-        const monthKey = String(r.month || month).trim();
-
-        const key = `${empKey}|${monthKey}`;
-
-        const status = statusMap.get(key);
-
-        if (status) {
-
-          r.emailStatus = status;
-
+      
+      // Update cache with latest statuses
+      Object.entries(latestStatusByEmployee).forEach(([key, record]) => {
+        // Only update from backend if not currently in 'sending' state (preserve local sending state)
+        const currentStatus = emailStatusCache[key];
+        if (!currentStatus || currentStatus.status !== 'sending' || forceRefresh) {
+          emailStatusCache[key] = {
+            status: record.status.toLowerCase(),
+            sentAt: record.sentAt,
+            errorMessage: record.errorMessage
+          };
         }
-
       });
-
-
-
-      save();
-
+      console.log('[EMAIL STATUS] Cached', Object.keys(latestStatusByEmployee).length, 'email status records');
     }
-
-  } catch (e) {
-
-    console.log('Error fetching email status:', e);
-
+  } catch (error) {
+    console.error('[EMAIL STATUS] Failed to load email status:', error);
   }
+}
 
+function getEmailStatus(empId, month) {
+  const key = `${empId}_${month}`;
+  return emailStatusCache[key] || null;
+}
+
+function formatEmailTimestamp(isoString) {
+  if (!isoString) return '';
+  const date = new Date(isoString);
+  return date.toLocaleDateString('en-GB', {
+    day: '2-digit',
+    month: 'short',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: true
+  });
+}
+
+function renderEmailStatusBadge(empId, month) {
+  const status = getEmailStatus(empId, month);
+  
+  if (!status) {
+    return `<span style="color:var(--muted);font-size:11px;">—</span>`;
+  }
+  
+  let badgeColor, badgeIcon, badgeText;
+  
+  switch (status.status) {
+    case 'sent':
+      badgeColor = '#16a34a';
+      badgeIcon = '✓';
+      badgeText = 'Sent Successfully';
+      break;
+    case 'failed':
+      badgeColor = '#dc2626';
+      badgeIcon = '✕';
+      badgeText = 'Failed';
+      break;
+    case 'sending':
+      badgeColor = '#f59e0b';
+      badgeIcon = '⟳';
+      badgeText = 'Sending…';
+      break;
+    default:
+      badgeColor = '#6b7280';
+      badgeIcon = '?';
+      badgeText = 'Unknown';
+  }
+  
+  const timestamp = formatEmailTimestamp(status.sentAt);
+  const errorMessage = status.errorMessage ? `<div style="font-size:9px;color:#dc2626;margin-top:2px;">${status.errorMessage}</div>` : '';
+  
+  return `
+    <div style="display:flex;flex-direction:column;align-items:center;gap:2px;">
+      <span style="display:inline-flex;align-items:center;gap:4px;padding:2px 8px;border-radius:12px;background:${badgeColor}22;color:${badgeColor};font-size:10px;font-weight:600;">
+        ${badgeIcon} ${badgeText}
+      </span>
+      ${timestamp ? `<span style="font-size:9px;color:var(--muted);">${timestamp}</span>` : ''}
+      ${errorMessage}
+    </div>
+  `;
 }
 
 
@@ -4134,13 +4146,12 @@ async function pgHistory(m){
 
   const locked=isLocked(sel);
 
-  
-
-  // Fetch email status from backend before rendering
-
-  await fetchEmailStatusForMonth(sel);
-
-  
+  // Load email status for all employees in this month (only if not already loaded)
+  const empIds = recs.map(r => r.empId);
+  const hasCachedStatus = empIds.some(empId => emailStatusCache[`${empId}_${sel}`]);
+  if (!hasCachedStatus) {
+    loadEmailStatusForMonth(sel, empIds);
+  }
 
   const fl=srchQ
 
@@ -4350,9 +4361,9 @@ function renderHistTable(fl, sel){
 
             </td>
 
-            <td style="text-align:center;">
+            <td style="text-align:center;" data-email-status="${r.empId}_${sel}">
 
-              <span class="badge ${r.emailStatus==='Sent'?'b-grn':r.emailStatus==='Failed'?'b-red':'b-gold'}" style="font-size:9px;">${r.emailStatus||'Pending'}</span>
+              ${renderEmailStatusBadge(r.empId, sel)}
 
             </td>
 
@@ -5528,7 +5539,19 @@ function doSendPayslipEmail(empId, month, toEmail) {
 
   mClose();
 
-
+  // Set email status to "sending" immediately
+  const key = `${empId}_${month}`;
+  emailStatusCache[key] = {
+    status: 'sending',
+    sentAt: null,
+    errorMessage: null
+  };
+  
+  // Re-render the history page to show "Sending..." status
+  const historyMain = document.getElementById('hrMain');
+  if (historyMain) {
+    pgHistory(historyMain); // Re-render to show updated status
+  }
 
   toast('✉ Sending payslip to ' + toEmail + '…', 'inf');
 
@@ -5598,154 +5621,167 @@ function doSendPayslipEmail(empId, month, toEmail) {
 
   const emailApiUrl = LOCAL_HOSTNAMES.includes(window.location.hostname)
 
-    ? 'http://127.0.0.1:8000/api/send-payslip-email'
+    ? 'http://127.0.0.1:8001/api/send-payslip-email'
 
     : `${API_BASE_URL}/api/send-payslip-email`;
 
   console.log('Email send URL:', emailApiUrl);
 
+  // Create AbortController for timeout handling
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => {
+    controller.abort();
+    console.error('[EMAIL SEND] Request timed out after 30 seconds');
+  }, 30000); // 30 second timeout
 
-
-  const updateEmailStatus = (status) => {
-
-    if (!r) return;
-
-    const normalizedStatus = normalizeEmailStatus(status);
-
-    if (!normalizedStatus) return;
-
-
-
-    const targetEmpKey = String(empId || '').trim().toUpperCase();
-
-    const targetMonth = String(month || '').trim();
-
-
-
-    for (const mon in PAY) {
-
-      const records = PAY[mon]?.records || [];
-
-      records.forEach(rec => {
-
-        const recEmpKey = String(rec.empId || '').trim().toUpperCase();
-
-        const recMonthKey = String(rec.month || mon).trim();
-
-        if (recEmpKey === targetEmpKey && recMonthKey === targetMonth) {
-
-          rec.emailStatus = normalizedStatus;
-
-        }
-
-      });
-
-    }
-
-
-
-    save();
-
-    const hrMain = document.getElementById('hrMain');
-
-    if (hrMain && typeof pgHistory === 'function') {
-
-      pgHistory(hrMain);
-
-    }
-
-  };
-
-
+  console.log('[EMAIL SEND] Starting API request to:', emailApiUrl);
 
   fetch(emailApiUrl, {
-
     method: 'POST',
-
     mode: 'cors',
-
     credentials: 'same-origin',
-
     cache: 'no-store',
-
+    signal: controller.signal,
     headers: {
-
       'Accept': 'application/json',
-
       'Content-Type': 'application/json'
-
     },
-
     body: JSON.stringify({
-
       empId: empId,
-
       month: month,
-
       customEmail: toEmail,
-
       employee: { id:e.id, name:e.name, org:e.org, branch:e.branch, designation:e.designation||'Staff', email:toEmail },
-
       payroll: r,
-
       htmlContent: htmlContent
-
     })
-
   })
-
-  .then(async res => {
-
-    let data;
-
-    try {
-
-      data = await res.json();
-
-    } catch (parseErr) {
-
-      console.error('Could not parse email API response as JSON:', parseErr);
-
-      data = null;
-
-    }
-
-
-
-    if (res.ok && data && data.success) {
-
-      toast('✅ Email sent successfully to ' + toEmail, 'success');
-
-      updateEmailStatus('Sent');
-
+  .then(res => {
+    clearTimeout(timeoutId);
+    console.log('[EMAIL SEND] Response received - status:', res.status, 'ok:', res.ok);
+    
+    // Try to parse JSON even if status is not OK
+    return res.json().then(data => ({ status: res.status, ok: res.ok, data })).catch(err => {
+      console.error('[EMAIL SEND] Failed to parse JSON response:', err);
+      return { status: res.status, ok: res.ok, data: null, parseError: true };
+    });
+  })
+  .then(({ status, ok, data, parseError }) => {
+    console.log('[EMAIL SEND RESPONSE] status:', status, 'ok:', ok, 'data:', data, 'parseError:', parseError);
+    
+    if (parseError) {
+      console.error('[EMAIL SEND] JSON parse error, treating as failure');
+      toast('❌ Email failed: Invalid response from server', 'err');
+      
+      // Update email status to "failed" due to parse error
+      const key = `${empId}_${month}`;
+      emailStatusCache[key] = {
+        status: 'failed',
+        sentAt: new Date().toISOString(),
+        errorMessage: 'Invalid response from server'
+      };
+      
+      // Re-render the history page to show updated status
+      const historyMain = document.getElementById('hrMain');
+      if (historyMain) {
+        pgHistory(historyMain);
+      }
       return;
-
     }
 
+    if (ok && data && data.success) {
+      console.log('[EMAIL SEND SUCCESS] Email sent successfully');
+      toast('✅ Email sent successfully to ' + toEmail, 'success');
+      
+      // Update email status to "sent"
+      const key = `${empId}_${month}`;
+      emailStatusCache[key] = {
+        status: 'sent',
+        sentAt: data.sent_at || new Date().toISOString(),
+        errorMessage: null
+      };
+      
+      // Update only the specific row's email status badge without full re-render
+      const statusCell = document.querySelector(`[data-email-status="${key}"]`);
+      if (statusCell) {
+        statusCell.innerHTML = renderEmailStatusBadge(empId, month);
+      }
+      
+      // Refresh email status from backend to ensure cache is in sync with database
+      setTimeout(() => {
+        const historyMain = document.getElementById('hrMain');
+        if (historyMain && selMonth) {
+          const recs = PAY[selMonth]?.records || [];
+          const empIds = recs.map(r => r.empId);
+          loadEmailStatusForMonth(selMonth, empIds, true);
+        }
+      }, 500);
+      return;
+    }
 
-
-    const errorMessage = formatSendError(data, res);
-
-    console.error('Email send failed:', { status: res.status, data, errorMessage });
-
-    updateEmailStatus('Failed');
-
+    console.log('[EMAIL SEND FAILED] ok:', ok, 'data.success:', (data && data.success), 'status:', status);
+    const errorMessage = (data && (data.error || data.message)) || `HTTP ${status}`;
+    console.error('Email send failed:', { status, data, errorMessage });
     toast('❌ Email failed: ' + errorMessage, 'err');
-
+    
+    // Update email status to "failed"
+    const key = `${empId}_${month}`;
+    emailStatusCache[key] = {
+      status: 'failed',
+      sentAt: data.sent_at || new Date().toISOString(),
+      errorMessage: errorMessage
+    };
+    
+    // Update only the specific row's email status badge without full re-render
+    const statusCell = document.querySelector(`[data-email-status="${key}"]`);
+    if (statusCell) {
+      statusCell.innerHTML = renderEmailStatusBadge(empId, month);
+    }
   })
-
   .catch(err => {
-
-    console.error('Email service error:', err);
-
-    console.log('Backend URL was:', emailApiUrl);
-
-    updateEmailStatus('Failed');
-
-    toast('❌ Cannot reach email service: ' + (err.message || err), 'err');
-
+    clearTimeout(timeoutId);
+    
+    if (err.name === 'AbortError') {
+      console.error('[EMAIL SEND] Request aborted due to timeout');
+      toast('❌ Email failed: Request timed out after 30 seconds', 'err');
+      
+      // Update email status to "failed" due to timeout
+      const key = `${empId}_${month}`;
+      emailStatusCache[key] = {
+        status: 'failed',
+        sentAt: new Date().toISOString(),
+        errorMessage: 'Request timed out after 30 seconds'
+      };
+      
+      // Update only the specific row's email status badge without full re-render
+      const statusCell = document.querySelector(`[data-email-status="${key}"]`);
+      if (statusCell) {
+        statusCell.innerHTML = renderEmailStatusBadge(empId, month);
+      }
+    } else {
+      console.error('[EMAIL SEND] Network or other error:', err);
+      console.log('Backend URL was:', emailApiUrl);
+      toast('❌ Cannot reach email service: ' + (err.message || err), 'err');
+      
+      // Update email status to "failed" due to network error
+      const key = `${empId}_${month}`;
+      emailStatusCache[key] = {
+        status: 'failed',
+        sentAt: new Date().toISOString(),
+        errorMessage: err.message || 'Network error'
+      };
+      
+      // Update only the specific row's email status badge without full re-render
+      const statusCell = document.querySelector(`[data-email-status="${key}"]`);
+      if (statusCell) {
+        statusCell.innerHTML = renderEmailStatusBadge(empId, month);
+      }
+    }
+  })
+  .finally(() => {
+    clearTimeout(timeoutId);
+    console.log('[EMAIL SEND] Request completed (finally block)');
+    // Clear loading state - status is now either 'sent' or 'failed'
   });
-
 }
 
 

@@ -88,8 +88,7 @@ def import_backup(backup_file_path):
                         gross=pr.get('gross', 0),
                         netPayable=pr.get('netPayable', 0),
                         paidAmount=pr.get('paidAmount', 0),
-                        balanceAmount=pr.get('balanceAmount', 0),
-                        email_status='Pending'
+                        balanceAmount=pr.get('balanceAmount', 0)
                     )
                     db.add(payroll)
                     total_imported += 1

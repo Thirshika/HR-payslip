@@ -79,7 +79,6 @@ const createTransporter = async () => {
 // Generate PDF from HTML
 const generatePDF = async (htmlContent, empId, month) => {
   const browser = await puppeteer.launch({
-    executablePath: puppeteer.executablePath(),
     headless: 'new',
     args: [
       '--disable-gpu',
@@ -88,7 +87,16 @@ const generatePDF = async (htmlContent, empId, month) => {
       '--disable-dev-shm-usage',
       '--disable-accelerated-2d-canvas',
       '--no-first-run',
-      '--no-zygote'
+      '--no-zygote',
+      '--disable-extensions',
+      '--disable-background-networking',
+      '--disable-default-apps',
+      '--disable-sync',
+      '--metrics-recording-only',
+      '--disable-breakpad',
+      '--no-default-browser-check',
+      '--disable-client-side-phishing-detection',
+      '--disable-component-extensions-with-background-pages'
     ],
     timeout: 30000,
     ignoreHTTPSErrors: true,

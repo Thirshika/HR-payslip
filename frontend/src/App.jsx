@@ -152,7 +152,7 @@ function App() {
     scriptLoadedRef.current = true;
 
     const script = document.createElement('script');
-    script.src = '/originalScript.js';
+    script.src = '/originalScript.js?v=' + Date.now();
     script.async = false;
     script.onload = () => {
       window.originalGotoPage = window.gotoPage;

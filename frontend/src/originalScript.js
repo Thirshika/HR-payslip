@@ -1,7 +1,6 @@
 // ═══════════════════════════════════════════════════════════════
 //  CONSTANTS
 // ═══════════════════════════════════════════════════════════════
-let HR_PASS = localStorage.getItem('tatti_hrpass_v1') || 'HR@Admin2024';
 const COLORS = ['#d4a017','#3a7bd5','#2eaa6e','#c0612f','#7b52c0','#c0297a','#1a8a8a','#8a6a1a','#5a3ac0','#3a9a3a'];
 const MONTHS_LIST = ['January','February','March','April','May','June','July','August','September','October','November','December'];
 
@@ -164,14 +163,11 @@ function seedEmployees(){
 }
 
 // ── LOAD DATA ──
-let EMP = JSON.parse(localStorage.getItem('tatti_emp_v5') || 'null') || seedEmployees();
-let PAY = JSON.parse(localStorage.getItem('tatti_pay_v5') || 'null') || {};
+console.log('🚀 originalScript.js LOADED - Cloud sync version');
 
+// Global data variables
+let EMP, PAY, LEAVE_APPS, EXPENSE_CLAIMS, ORGS, EMP_DOCS, ATT_DATA, HR_PASS;
 let curTab='hr', curPage='dashboard', curEmpId=null, srchQ='', selMonth=null, empViewMon=null;
-
-// ── NEW MODULE DATA ──
-let LEAVE_APPS  = JSON.parse(localStorage.getItem('tatti_leaves_v1') || '[]');
-let EXPENSE_CLAIMS = JSON.parse(localStorage.getItem('tatti_expenses_v1') || '[]');
 
 // ── ORGANIZATIONS & BRANCHES ──
 const DEFAULT_ORGS = [
@@ -180,10 +176,113 @@ const DEFAULT_ORGS = [
   {id:'ORG002', name:'R M Educational Trust', shortName:'RM Trust', color:'#1a7a4a',
    branches:['Gee Gee Complex'], address:'', phone:'', email:'', website:''},
 ];
-let ORGS = JSON.parse(localStorage.getItem('tatti_orgs_v1') || 'null') || DEFAULT_ORGS;
 
-// ── EMPLOYEE DOCUMENTS ──
-let EMP_DOCS = JSON.parse(localStorage.getItem('tatti_docs_v1') || '[]');
+// ── LOAD DATA FROM BACKEND API ──
+async function loadFromBackend() {
+  try {
+    const API_BASE = window.location.hostname === 'localhost' 
+      ? 'http://localhost:8000' 
+      : 'https://hr-payslip-mh66.onrender.com';
+    
+    console.log('📡 Loading data from backend:', API_BASE);
+    const response = await fetch(`${API_BASE}/api/data/all`);
+    const result = await response.json();
+    
+    if (result.success && result.data) {
+      console.log('✅ Data loaded from backend successfully');
+      return result.data;
+    } else {
+      console.warn('⚠️ Backend returned no data, using seed data');
+      return null;
+    }
+  } catch (error) {
+    console.warn('⚠️ Failed to load from backend, using seed data:', error.message);
+    return null;
+  }
+}
+
+// ── SAVE DATA TO BACKEND API ──
+async function saveToBackend() {
+  try {
+    const API_BASE = window.location.hostname === 'localhost' 
+      ? 'http://localhost:8000' 
+      : 'https://hr-payslip-mh66.onrender.com';
+    
+    const data = {
+      EMP,
+      PAY,
+      LEAVE_APPS,
+      EXPENSE_CLAIMS,
+      ORGS,
+      EMP_DOCS,
+      ATT_DATA,
+      HR_PASS
+    };
+    
+    console.log('📤 Saving data to backend:', API_BASE);
+    const response = await fetch(`${API_BASE}/api/data/save`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ data })
+    });
+    
+    const result = await response.json();
+    if (result.success) {
+      console.log('✅ Data saved to backend successfully');
+      return true;
+    } else {
+      console.error('❌ Failed to save to backend:', result.error);
+      return false;
+    }
+  } catch (error) {
+    console.error('❌ Error saving to backend:', error.message);
+    return false;
+  }
+}
+
+// ── INITIALIZE DATA ──
+async function initializeData() {
+  const backendData = await loadFromBackend();
+  
+  if (backendData) {
+    // Use data from backend
+    EMP = backendData.EMP || seedEmployees();
+    PAY = backendData.PAY || {};
+    LEAVE_APPS = backendData.LEAVE_APPS || [];
+    EXPENSE_CLAIMS = backendData.EXPENSE_CLAIMS || [];
+    ORGS = backendData.ORGS || DEFAULT_ORGS;
+    EMP_DOCS = backendData.EMP_DOCS || [];
+    ATT_DATA = backendData.ATT_DATA || {};
+    HR_PASS = backendData.HR_PASS || 'HR@Admin2024';
+    console.log('✅ Using data from backend database');
+  } else {
+    // Use seed/local data as fallback
+    EMP = JSON.parse(localStorage.getItem('tatti_emp_v5') || 'null') || seedEmployees();
+    PAY = JSON.parse(localStorage.getItem('tatti_pay_v5') || 'null') || {};
+    LEAVE_APPS = JSON.parse(localStorage.getItem('tatti_leaves_v1') || '[]');
+    EXPENSE_CLAIMS = JSON.parse(localStorage.getItem('tatti_expenses_v1') || '[]');
+    ORGS = JSON.parse(localStorage.getItem('tatti_orgs_v1') || 'null') || DEFAULT_ORGS;
+    EMP_DOCS = JSON.parse(localStorage.getItem('tatti_docs_v1') || '[]');
+    HR_PASS = localStorage.getItem('tatti_hrpass_v1') || 'HR@Admin2024';
+    
+    // Initialize ATT_DATA from localStorage if available
+    try {
+      const attData = localStorage.getItem('tatti_att_v1');
+      if (attData) {
+        ATT_DATA = JSON.parse(attData);
+      } else {
+        ATT_DATA = {};
+      }
+    } catch (e) {
+      ATT_DATA = {};
+    }
+    
+    console.log('⚠️ Using local data as fallback');
+  }
+}
+
+// Initialize data on load
+initializeData();
 
 const DOC_TYPES = [
   {id:'photo',      label:'Profile Photo',        emoji:'📷', accept:'image/*',         color:'#3a7bd5'},
@@ -212,18 +311,32 @@ const EXPENSE_CATS = [
 ];
 
 function saveAll(){
+  // Save to localStorage as backup
   localStorage.setItem('tatti_emp_v5',JSON.stringify(EMP));
   localStorage.setItem('tatti_pay_v5',JSON.stringify(PAY));
   localStorage.setItem('tatti_leaves_v1',JSON.stringify(LEAVE_APPS));
   localStorage.setItem('tatti_expenses_v1',JSON.stringify(EXPENSE_CLAIMS));
   localStorage.setItem('tatti_orgs_v1',JSON.stringify(ORGS));
+  localStorage.setItem('tatti_hrpass_v1',HR_PASS);
+  
+  // Save to backend API (async, don't wait)
+  saveToBackend().catch(err => console.warn('Backend save failed:', err));
+  
   // Don't save EMP_DOCS in saveAll - handled separately (large files)
 }
 
 let _rptTab='org', _rptMonth='', _leaveFilter='all', _expFilter='all';
 
 
-function saveDocs(){ try{ localStorage.setItem('tatti_docs_v1',JSON.stringify(EMP_DOCS)); }catch(e){ toast('Storage full — try removing old docs','err'); } }
+function saveDocs(){ 
+  try{ 
+    localStorage.setItem('tatti_docs_v1',JSON.stringify(EMP_DOCS)); 
+    // Also save to backend
+    saveToBackend().catch(err => console.warn('Backend save failed:', err));
+  }catch(e){ 
+    toast('Storage full — try removing old docs','err'); 
+  } 
+}
 function save(){ saveAll(); }
 
 // ── Helpers ──
@@ -1342,7 +1455,6 @@ function delAdvEntry(id, idx){
 //  ATTENDANCE ENTRY PAGE
 // ══════════════════════════════════════════════════════
 let _attMon='', _attBatch='';
-const ATT_DATA={};
 
 function loadAttData(){
   try{ const d=localStorage.getItem('tatti_att_v1'); if(d){ const p=JSON.parse(d); Object.assign(ATT_DATA,p); } }catch(e){}
@@ -1460,10 +1572,14 @@ function attSet(empId,field,val){
   ATT_DATA[_attMon][empId][field]=field==='remarks'?val:(parseFloat(val)||0);
   // Auto-save immediately so data is never lost
   try{ localStorage.setItem('tatti_att_v1',JSON.stringify(ATT_DATA)); }catch(e){}
+  // Also save to backend
+  saveToBackend().catch(err => console.warn('Backend save failed:', err));
 }
 
 function saveAttendance(){
   try{ localStorage.setItem('tatti_att_v1',JSON.stringify(ATT_DATA)); }catch(e){}
+  // Also save to backend
+  saveToBackend().catch(err => console.warn('Backend save failed:', err));
   toast('✅ Attendance saved for '+_attMon);
 }
 
@@ -1525,6 +1641,8 @@ function applyAttCalEmp(empId,month){
   if(inp) inp.value=sel.length;
   // Save to localStorage immediately
   try{ localStorage.setItem('tatti_att_v1',JSON.stringify(ATT_DATA)); }catch(e){}
+  // Also save to backend
+  saveToBackend().catch(err => console.warn('Backend save failed:', err));
   mClose();
   toast(`✓ ${sel.length} days recorded for ${byId(empId)?.name||empId}`);
 }
@@ -1966,46 +2084,163 @@ function doFinalize(){
 //  PAYROLL HISTORY
 // ═══════════════════════════════════════════
 let _histView = 'table'; // 'card' | 'table'
+let emailStatusCache = {}; // Cache for email status: { "empId_month": { status, sentAt, errorMessage } }
 
-async function fetchEmailStatusForMonth(month) {
+async function loadEmailStatusForMonth(month, empIds) {
   const localApiUrl = LOCAL_HOSTNAMES.includes(window.location.hostname)
-    ? 'http://127.0.0.1:8000'
+    ? 'http://127.0.0.1:8001'
     : 'http://localhost:3001';
   
+  console.log('[EMAIL STATUS] Loading email status for month:', month, 'employees:', empIds.length);
+  
   try {
-    const response = await fetch(`${localApiUrl}/api/payroll-email-status/${encodeURIComponent(month)}`, {
+    // Load email history for the entire month
+    const response = await fetch(`${localApiUrl}/api/email-history-month/${encodeURIComponent(month)}`, {
       method: 'GET',
       headers: { 'Content-Type': 'application/json' },
     });
     
     const data = await response.json();
+    console.log('[EMAIL STATUS] Backend response:', data);
     
-    if (data.success && data.records) {
-      // Update local PAY records with email status from backend
-      data.records.forEach(record => {
-        const targetEmpKey = String(record.empId || '').trim().toUpperCase();
-        const targetMonth = String(month || '').trim().toLowerCase();
-        
-        for (const mon in PAY) {
-          const records = PAY[mon]?.records || [];
-          records.forEach(rec => {
-            const recEmpKey = String(rec.empId || '').trim().toUpperCase();
-            const recMonthKey = String(rec.month || mon).trim().toLowerCase();
-            if (recEmpKey === targetEmpKey && recMonthKey === targetMonth) {
-              // Only update if backend has a non-Pending status (to preserve immediate local updates)
-              if (record.email_status && record.email_status !== 'Pending') {
-                rec.emailStatus = record.email_status;
-              }
-              rec.email_sent_at = record.email_sent_at;
-              rec.email_error = record.email_error;
-            }
-          });
-        }
+    if (data.success && data.history) {
+      // Cache the email status by empId_month
+      data.history.forEach(record => {
+        const key = `${record.empId}_${record.month}`;
+        emailStatusCache[key] = {
+          status: record.status.toLowerCase(),
+          sentAt: record.sentAt,
+          errorMessage: record.errorMessage
+        };
       });
-      console.log(`[EMAIL STATUS] Fetched and updated email status for ${data.records.length} records in ${month}`);
+      console.log('[EMAIL STATUS] Cached', data.history.length, 'email status records');
     }
   } catch (error) {
-    console.error('[EMAIL STATUS] Error fetching email status:', error);
+    console.error('[EMAIL STATUS] Failed to load email status:', error);
+  }
+}
+
+function getEmailStatus(empId, month) {
+  const key = `${empId}_${month}`;
+  return emailStatusCache[key] || null;
+}
+
+function formatEmailTimestamp(isoString) {
+  if (!isoString) return '';
+  const date = new Date(isoString);
+  return date.toLocaleDateString('en-GB', {
+    day: '2-digit',
+    month: 'short',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: true
+  });
+}
+
+function renderEmailStatusBadge(empId, month) {
+  const status = getEmailStatus(empId, month);
+  
+  if (!status) {
+    return `<span style="color:var(--muted);font-size:11px;">—</span>`;
+  }
+  
+  let badgeColor, badgeIcon, badgeText;
+  
+  switch (status.status) {
+    case 'sent':
+      badgeColor = '#16a34a';
+      badgeIcon = '✓';
+      badgeText = 'Sent Successfully';
+      break;
+    case 'failed':
+      badgeColor = '#dc2626';
+      badgeIcon = '✕';
+      badgeText = 'Failed';
+      break;
+    case 'sending':
+      badgeColor = '#f59e0b';
+      badgeIcon = '⟳';
+      badgeText = 'Sending…';
+      break;
+    default:
+      badgeColor = '#6b7280';
+      badgeIcon = '?';
+      badgeText = 'Unknown';
+  }
+  
+  const timestamp = formatEmailTimestamp(status.sentAt);
+  const errorMessage = status.errorMessage ? `<div style="font-size:9px;color:#dc2626;margin-top:2px;">${status.errorMessage}</div>` : '';
+  
+  return `
+    <div style="display:flex;flex-direction:column;align-items:center;gap:2px;">
+      <span style="display:inline-flex;align-items:center;gap:4px;padding:2px 8px;border-radius:12px;background:${badgeColor}22;color:${badgeColor};font-size:10px;font-weight:600;">
+        ${badgeIcon} ${badgeText}
+      </span>
+      ${timestamp ? `<span style="font-size:9px;color:var(--muted);">${timestamp}</span>` : ''}
+      ${errorMessage}
+    </div>
+  `;
+}
+
+async function loadPayrollFromBackend(month) {
+  const localApiUrl = LOCAL_HOSTNAMES.includes(window.location.hostname)
+    ? 'http://127.0.0.1:8001'
+    : 'http://localhost:3001';
+  
+  console.log('[PAYROLL LOAD] Loading payroll data from backend for month:', month);
+  
+  try {
+    const response = await fetch(`${localApiUrl}/api/payroll/${encodeURIComponent(month)}`, {
+      method: 'GET',
+      headers: { 'Content-Type': 'application/json' },
+    });
+    
+    const data = await response.json();
+    console.log('[PAYROLL LOAD] Backend response:', data);
+    
+    if (data.success && data.records) {
+      console.log('[PAYROLL LOAD] Loaded', data.records.length, 'records from backend');
+      
+      // Initialize PAY structure for this month if it doesn't exist
+      if (!PAY[month]) {
+        PAY[month] = { locked: false, generatedOn: new Date().toISOString(), records: [] };
+      }
+      
+      // Update or add records from backend
+      data.records.forEach(backendRecord => {
+        const existingIndex = PAY[month].records.findIndex(
+          r => String(r.empId || '').trim().toUpperCase() === String(backendRecord.empId || '').trim().toUpperCase()
+        );
+        
+        if (existingIndex >= 0) {
+          // Update existing record
+          PAY[month].records[existingIndex] = {
+            ...PAY[month].records[existingIndex],
+            ...backendRecord
+          };
+          console.log('[PAYROLL LOAD] Updated existing record:', backendRecord.empId);
+        } else {
+          // Add new record
+          PAY[month].records.push({
+            ...backendRecord
+          });
+          console.log('[PAYROLL LOAD] Added new record:', backendRecord.empId);
+        }
+      });
+      
+      save();
+      console.log('[PAYROLL LOAD] Data saved to localStorage');
+      console.log('[PAYROLL LOAD] Current PAY[month] records:', PAY[month]?.records?.map(r => ({empId: r.empId})));
+      
+      return true;
+    } else {
+      console.log('[PAYROLL LOAD] No records in backend response or success=false');
+      return false;
+    }
+  } catch (error) {
+    console.error('[PAYROLL LOAD] Error loading payroll data:', error);
+    return false;
   }
 }
 
@@ -2019,12 +2254,29 @@ function pgHistory(m, skipBackendFetch = false){
   const recs=PAY[sel]?.records||[];
   const locked=isLocked(sel);
 
-  // Initialize email status to 'Pending' if not set
-  recs.forEach(r => {
-    if (!r.emailStatus) {
-      r.emailStatus = 'Pending';
-    }
+  // Load payroll data from backend when not skipping
+  if (!skipBackendFetch) {
+    loadPayrollFromBackend(sel).then(() => {
+      // After loading, render the page
+      const updatedRecs = PAY[sel]?.records||[];
+      // Load email status for all employees in this month
+      const empIds = updatedRecs.map(r => r.empId);
+      loadEmailStatusForMonth(sel, empIds).then(() => {
+        renderHistoryPage(m, sel, updatedRecs, locked, mons);
+      });
+    });
+    return;
+  }
+
+  // Load email status even when skipping backend fetch
+  const empIds = recs.map(r => r.empId);
+  loadEmailStatusForMonth(sel, empIds).then(() => {
+    renderHistoryPage(m, sel, recs, locked, mons);
   });
+}
+
+function renderHistoryPage(m, sel, recs, locked, mons) {
+  console.log(`[RENDER] Rendering page for month: ${sel}, records count: ${recs.length}`);
 
   const fl=srchQ
     ? recs.filter(r=>{const e=byId(r.empId);return e&&(e.name.toLowerCase().includes(srchQ)||e.branch.toLowerCase().includes(srchQ)||e.id.toLowerCase().includes(srchQ));})
@@ -2070,6 +2322,7 @@ function renderHistTable(fl, sel){
   const totLOP=fl.reduce((s,r)=>s+lopAmt(r),0);
   const totAdv=fl.reduce((s,r)=>s+(r.advanceDeducted||0),0);
   const totOth=fl.reduce((s,r)=>s+(r.otherDeduction||0),0);
+  
   return `
   <div class="rpt-tbl-wrap" style="margin-top:.5rem;">
     <table class="rpt-tbl" style="font-size:12px;">
@@ -2131,7 +2384,7 @@ function renderHistTable(fl, sel){
               <button class="btn btn-o btn-xs" onclick="event.stopPropagation();openSlip('${r.empId}','${sel}')">👁 View</button>
             </td>
             <td style="text-align:center;">
-              <span class="badge ${r.emailStatus==='Sent'?'b-grn':r.emailStatus==='Failed'?'b-red':'b-gold'}" style="font-size:9px;">${r.emailStatus||'Pending'}</span>
+              ${renderEmailStatusBadge(r.empId, sel)}
             </td>
           </tr>`;
         }).join('')}
@@ -2720,6 +2973,20 @@ function doSendPayslipEmail(empId, month, toEmail) {
   // Close any open modal
   mClose();
 
+  // Set email status to "sending" immediately
+  const key = `${empId}_${month}`;
+  emailStatusCache[key] = {
+    status: 'sending',
+    sentAt: null,
+    errorMessage: null
+  };
+  
+  // Re-render the history page to show "Sending..." status
+  const historyMain = document.getElementById('hrMain');
+  if (historyMain) {
+    pgHistory(historyMain, true); // Skip backend fetch, just re-render
+  }
+
   toast('✉ Sending payslip to ' + toEmail + '…', 'inf');
 
   // Capture the payslip HTML from the DOM
@@ -2752,60 +3019,24 @@ function doSendPayslipEmail(empId, month, toEmail) {
   }
 
   const localSendUrl = LOCAL_HOSTNAMES.includes(window.location.hostname)
-    ? 'http://127.0.0.1:8000/api/send-payslip-email'
+    ? 'http://127.0.0.1:8001/api/send-payslip-email'
     : 'http://localhost:3001/api/send-payslip-email';
 
-  const updateEmailStatus = (status) => {
-    console.log('[EMAIL STATUS UPDATE] Starting update with status:', status, 'for empId:', empId, 'month:', month);
-    
-    if (!r) {
-      console.log('[EMAIL STATUS UPDATE] No record found, aborting');
-      return;
-    }
+  // Create AbortController for timeout handling
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => {
+    controller.abort();
+    console.error('[EMAIL SEND] Request timed out after 30 seconds');
+  }, 30000); // 30 second timeout
 
-    const targetEmpKey = String(empId || '').trim().toUpperCase();
-    const targetMonth = String(month || '').trim().toLowerCase();
-    
-    console.log('[EMAIL STATUS UPDATE] Target empKey:', targetEmpKey, 'targetMonth:', targetMonth);
-
-    let updated = false;
-    for (const mon in PAY) {
-      const records = PAY[mon]?.records || [];
-      records.forEach(rec => {
-        const recEmpKey = String(rec.empId || '').trim().toUpperCase();
-        const recMonthKey = String(rec.month || mon).trim().toLowerCase();
-        console.log('[EMAIL STATUS UPDATE] Checking record:', recEmpKey, recMonthKey, 'against target:', targetEmpKey, targetMonth);
-        
-        if (recEmpKey === targetEmpKey && recMonthKey === targetMonth) {
-          console.log('[EMAIL STATUS UPDATE] MATCH! Updating record from', rec.emailStatus, 'to', status);
-          rec.emailStatus = status;
-          updated = true;
-        }
-      });
-    }
-
-    if (!updated) {
-      console.log('[EMAIL STATUS UPDATE] WARNING: No matching record found for update');
-    }
-
-    save();
-    console.log('[EMAIL STATUS UPDATE] Data saved');
-    
-    // Re-render the page immediately with updated data
-    const hrMain = document.getElementById('hrMain');
-    if (hrMain && typeof pgHistory === 'function') {
-      console.log('[EMAIL STATUS UPDATE] Calling pgHistory with skipBackendFetch=true');
-      pgHistory(hrMain, true);
-    } else {
-      console.log('[EMAIL STATUS UPDATE] ERROR: hrMain or pgHistory not available');
-    }
-  };
+  console.log('[EMAIL SEND] Starting API request to:', localSendUrl);
 
   fetch(localSendUrl, {
     method: 'POST',
     mode: 'cors',
     credentials: 'same-origin',
     cache: 'no-store',
+    signal: controller.signal,
     headers: {
       'Accept': 'application/json',
       'Content-Type': 'application/json'
@@ -2820,21 +3051,118 @@ function doSendPayslipEmail(empId, month, toEmail) {
     })
   })
   .then(res => {
-    return res.json().then(data => ({ status: res.status, ok: res.ok, data }));
+    clearTimeout(timeoutId);
+    console.log('[EMAIL SEND] Response received - status:', res.status, 'ok:', res.ok);
+    
+    // Try to parse JSON even if status is not OK
+    return res.json().then(data => ({ status: res.status, ok: res.ok, data })).catch(err => {
+      console.error('[EMAIL SEND] Failed to parse JSON response:', err);
+      return { status: res.status, ok: res.ok, data: null, parseError: true };
+    });
   })
-  .then(({ status, ok, data }) => {
-    if (ok && data.success) {
+  .then(({ status, ok, data, parseError }) => {
+    console.log('[EMAIL SEND RESPONSE] status:', status, 'ok:', ok, 'data:', data, 'parseError:', parseError);
+    
+    if (parseError) {
+      console.error('[EMAIL SEND] JSON parse error, treating as failure');
+      toast('❌ Email failed: Invalid response from server', 'err');
+      
+      // Update email status to "failed" due to parse error
+      const key = `${empId}_${month}`;
+      emailStatusCache[key] = {
+        status: 'failed',
+        sentAt: new Date().toISOString(),
+        errorMessage: 'Invalid response from server'
+      };
+      
+      // Re-render the history page to show updated status
+      const historyMain = document.getElementById('hrMain');
+      if (historyMain) {
+        pgHistory(historyMain, true); // Skip backend fetch, just re-render
+      }
+      return;
+    }
+
+    if (ok && data && data.success) {
+      console.log('[EMAIL SEND SUCCESS] Email sent successfully');
       toast('✅ Payslip emailed to ' + toEmail);
-      updateEmailStatus('Sent');
+      
+      // Update email status to "sent"
+      const key = `${empId}_${month}`;
+      emailStatusCache[key] = {
+        status: 'sent',
+        sentAt: data.sent_at || new Date().toISOString(),
+        errorMessage: null
+      };
+      
+      // Re-render the history page to show updated status
+      const historyMain = document.getElementById('hrMain');
+      if (historyMain) {
+        pgHistory(historyMain, true); // Skip backend fetch, just re-render
+      }
     } else {
-      updateEmailStatus('Failed');
-      toast('❌ Email failed: ' + (data.error || data.message || `HTTP ${status}`), 'err');
+      console.log('[EMAIL SEND FAILED] ok:', ok, 'data.success:', (data && data.success), 'status:', status);
+      const errorMsg = (data && (data.error || data.message)) || `HTTP ${status}`;
+      toast('❌ Email failed: ' + errorMsg, 'err');
+      
+      // Update email status to "failed"
+      const key = `${empId}_${month}`;
+      emailStatusCache[key] = {
+        status: 'failed',
+        sentAt: data.sent_at || new Date().toISOString(),
+        errorMessage: errorMsg
+      };
+      
+      // Re-render the history page to show updated status
+      const historyMain = document.getElementById('hrMain');
+      if (historyMain) {
+        pgHistory(historyMain, true); // Skip backend fetch, just re-render
+      }
     }
   })
   .catch(err => {
-    console.error('Email service error:', err);
-    updateEmailStatus('Failed');
-    toast('❌ Cannot reach email service — make sure it is running on port 3001', 'err');
+    clearTimeout(timeoutId);
+    
+    if (err.name === 'AbortError') {
+      console.error('[EMAIL SEND] Request aborted due to timeout');
+      toast('❌ Email failed: Request timed out after 30 seconds', 'err');
+      
+      // Update email status to "failed" due to timeout
+      const key = `${empId}_${month}`;
+      emailStatusCache[key] = {
+        status: 'failed',
+        sentAt: new Date().toISOString(),
+        errorMessage: 'Request timed out after 30 seconds'
+      };
+      
+      // Re-render the history page to show updated status
+      const historyMain = document.getElementById('hrMain');
+      if (historyMain) {
+        pgHistory(historyMain, true); // Skip backend fetch, just re-render
+      }
+    } else {
+      console.error('[EMAIL SEND] Network or other error:', err);
+      toast('❌ Email failed: ' + err.message, 'err');
+      
+      // Update email status to "failed" due to network error
+      const key = `${empId}_${month}`;
+      emailStatusCache[key] = {
+        status: 'failed',
+        sentAt: new Date().toISOString(),
+        errorMessage: err.message
+      };
+      
+      // Re-render the history page to show updated status
+      const historyMain = document.getElementById('hrMain');
+      if (historyMain) {
+        pgHistory(historyMain, true); // Skip backend fetch, just re-render
+      }
+    }
+  })
+  .finally(() => {
+    clearTimeout(timeoutId);
+    console.log('[EMAIL SEND] Request completed (finally block)');
+    // Clear loading state - status is now either 'sent' or 'failed'
   });
 }
 
@@ -3654,6 +3982,8 @@ function pushExpToAttData(claim){
   ATT_DATA[mon][claim.empId].otherExpenses=prev+(claim.amount||0);
   // Save ATT_DATA
   try{ localStorage.setItem('tatti_att_v1',JSON.stringify(ATT_DATA)); }catch(e){}
+  // Also save to backend
+  saveToBackend().catch(err => console.warn('Backend save failed:', err));
 }
 
 function updateExpStatus(id,status){
@@ -3671,6 +4001,7 @@ function updateExpStatus(id,status){
     if(mon&&ATT_DATA[mon]?.[c.empId]){
       ATT_DATA[mon][c.empId].otherExpenses=Math.max(0,(ATT_DATA[mon][c.empId].otherExpenses||0)-(c.amount||0));
       try{ localStorage.setItem('tatti_att_v1',JSON.stringify(ATT_DATA)); }catch(e){}
+      saveToBackend().catch(err => console.warn('Backend save failed:', err));
     }
     toast('Expense rejected — removed from payroll');
   } else {
@@ -3689,6 +4020,7 @@ function deleteExp(id){
     if(ATT_DATA[mon]?.[c.empId]){
       ATT_DATA[mon][c.empId].otherExpenses=Math.max(0,(ATT_DATA[mon][c.empId].otherExpenses||0)-(c.amount||0));
       try{ localStorage.setItem('tatti_att_v1',JSON.stringify(ATT_DATA)); }catch(e){}
+      saveToBackend().catch(err => console.warn('Backend save failed:', err));
     }
   }
   EXPENSE_CLAIMS.splice(i,1);
@@ -4490,9 +4822,9 @@ function pgBackup(m){
   m.innerHTML=`
   <div class="page-hd"><div><h1>Backup & Restore</h1><p>Protect your payroll data — export and import all data as a file</p></div></div>
 
-  <div class="banner bn-warn" style="margin-bottom:1.25rem;">
-    ⚠️ <strong>Important:</strong> This app stores data in your browser. If you clear browser data or open on a different device, all data will be lost. 
-    <strong>Export a backup regularly</strong> and keep it safe.
+  <div class="banner bn-info" style="margin-bottom:1.25rem;">
+    ✅ <strong>Cloud Storage Enabled:</strong> Your data is now stored in the cloud database and will persist across all devices. 
+    You can access your payroll data from any device by logging in. <strong>Export a backup</strong> for additional safety.
   </div>
 
   <div style="display:grid;grid-template-columns:1fr 1fr;gap:1rem;margin-bottom:1.5rem;">

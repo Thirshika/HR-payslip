@@ -12,7 +12,7 @@ function PayslipView() {
   
   // Get backend API URL from environment
   const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 
-    (import.meta.env.DEV ? 'http://localhost:8000' : 'https://hr-payslip-backend.onrender.com');
+    (import.meta.env.DEV ? 'http://localhost:8001' : 'https://hr-payslip-backend.onrender.com');
 
   // Fetch email history when component mounts or modal opens
   useEffect(() => {
