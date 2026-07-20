@@ -4057,6 +4057,20 @@ async function loadEmailStatusForMonth(month, empIds, forceRefresh = false) {
         }
       });
       console.log('[EMAIL STATUS] Cached', Object.keys(latestStatusByEmployee).length, 'email status records');
+      console.log('[EMAIL STATUS] Current cache:', emailStatusCache);
+      
+      // Update email status badges in the DOM after loading
+      Object.keys(latestStatusByEmployee).forEach(key => {
+        const [empId, month] = key.split('_');
+        const statusCell = document.querySelector(`[data-email-status="${key}"]`);
+        if (statusCell) {
+          const newBadge = renderEmailStatusBadge(empId, month);
+          console.log('[EMAIL STATUS] Updating badge for', key, 'to:', newBadge.substring(0, 50));
+          statusCell.innerHTML = newBadge;
+        } else {
+          console.log('[EMAIL STATUS] Status cell not found for', key);
+        }
+      });
     }
   } catch (error) {
     console.error('[EMAIL STATUS] Failed to load email status:', error);
@@ -4146,13 +4160,6 @@ async function pgHistory(m){
 
   const locked=isLocked(sel);
 
-  // Load email status for all employees in this month (only if not already loaded)
-  const empIds = recs.map(r => r.empId);
-  const hasCachedStatus = empIds.some(empId => emailStatusCache[`${empId}_${sel}`]);
-  if (!hasCachedStatus) {
-    loadEmailStatusForMonth(sel, empIds);
-  }
-
   const fl=srchQ
 
     ? recs.filter(r=>{const e=byId(r.empId);return e&&(e.name.toLowerCase().includes(srchQ)||e.branch.toLowerCase().includes(srchQ)||e.id.toLowerCase().includes(srchQ));})
@@ -4222,6 +4229,10 @@ async function pgHistory(m){
   </div>
 
   ${_histView==='table' ? renderHistTable(fl, sel) : renderHistCards(fl, sel)}`;
+
+  // Load email status after table is rendered (DOM elements exist now)
+  const empIds = recs.map(r => r.empId);
+  loadEmailStatusForMonth(sel, empIds);
 
 }
 
@@ -5631,8 +5642,8 @@ function doSendPayslipEmail(empId, month, toEmail) {
   const controller = new AbortController();
   const timeoutId = setTimeout(() => {
     controller.abort();
-    console.error('[EMAIL SEND] Request timed out after 30 seconds');
-  }, 30000); // 30 second timeout
+    console.error('[EMAIL SEND] Request timed out after 60 seconds');
+  }, 60000); // 60 second timeout
 
   console.log('[EMAIL SEND] Starting API request to:', emailApiUrl);
 
@@ -5742,14 +5753,14 @@ function doSendPayslipEmail(empId, month, toEmail) {
     
     if (err.name === 'AbortError') {
       console.error('[EMAIL SEND] Request aborted due to timeout');
-      toast('❌ Email failed: Request timed out after 30 seconds', 'err');
+      toast('❌ Email failed: Request timed out after 60 seconds', 'err');
       
       // Update email status to "failed" due to timeout
       const key = `${empId}_${month}`;
       emailStatusCache[key] = {
         status: 'failed',
         sentAt: new Date().toISOString(),
-        errorMessage: 'Request timed out after 30 seconds'
+        errorMessage: 'Request timed out after 60 seconds'
       };
       
       // Update only the specific row's email status badge without full re-render
